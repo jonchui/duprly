@@ -56,7 +56,7 @@ def get_all_players_from_dupr():
 
 
 def get_matches_from_dupr(dupr_id: int):
-    """ Get match history for specified player """
+    """Get match history for specified player"""
 
     _rc, matches = dupr.get_member_match_history_p(dupr_id)
 
@@ -79,8 +79,9 @@ def get_matches_from_dupr(dupr_id: int):
                 for p in team.players:
                     # This is very kludgy, the player data returned from the MatchHistory
                     # call only has a few fields
-                    p1 = sess.execute(select(Player).where(
-                        Player.dupr_id == p.dupr_id)).scalar_one_or_none()
+                    p1 = sess.execute(
+                        select(Player).where(Player.dupr_id == p.dupr_id)
+                    ).scalar_one_or_none()
                     if p1:
                         # set team to this player object instead
                         plist.append(p1)
@@ -92,7 +93,9 @@ def get_matches_from_dupr(dupr_id: int):
                         # SQLA seems to happily add both?
                         # so check to see if p already has been added:
                         if len(plist) > 0 and plist[0].dupr_id == p.dupr_id:
-                            logger.warning(f"same player on doubles team {p.dupr_id} {m.match_id}")
+                            logger.warning(
+                                f"same player on doubles team {p.dupr_id} {m.match_id}"
+                            )
                             continue
                         plist.append(p)
                         print(f"saved new limited data player")
@@ -106,8 +109,9 @@ def update_ratings_from_dupr():
     with Session(eng) as sess:
         # Has to use "has" not "any" because it is 1=1? Also need to have something
         # in the has() function
-        dupr_ids = sess.scalars(select(Player.dupr_id).where(
-            ~Player.rating.has(Rating.doubles)))
+        dupr_ids = sess.scalars(
+            select(Player.dupr_id).where(~Player.rating.has(Rating.doubles))
+        )
 
     for i in dupr_ids:
         get_player_from_dupr(i)
@@ -115,7 +119,7 @@ def update_ratings_from_dupr():
 
 @click.command()
 def build_match_detail():
-    """ Flatten match data for faster query """
+    """Flatten match data for faster query"""
     with Session(eng) as sess:
         sess.execute(delete(MatchDetail))
         matches = sess.scalars(select(Match))
@@ -138,7 +142,15 @@ def build_match_detail():
 
 
 def match_row(m: Match) -> tuple:
-    return (m.match_id, m.user_id, m.display_identity, m.event_date, m.confirmed, m.event_format, m.match_type)
+    return (
+        m.match_id,
+        m.user_id,
+        m.display_identity,
+        m.event_date,
+        m.confirmed,
+        m.event_format,
+        m.match_type,
+    )
 
 
 def team_row(t: MatchTeam, ratings) -> tuple:
@@ -150,7 +162,9 @@ def team_row(t: MatchTeam, ratings) -> tuple:
         doubles2 = "NA"
         p2_row = ("", "", "NA")
 
-    return (t.player1.dupr_id, t.player1.full_name, doubles1) + p2_row + (t.game_score1,)
+    return (
+        (t.player1.dupr_id, t.player1.full_name, doubles1) + p2_row + (t.game_score1,)
+    )
 
 
 @click.command()
@@ -163,41 +177,80 @@ def write_excel():
     # cache all ratings
     player_ratings = {}
 
-    ws.append(("id", "DUPR id", "full name", "gender", "age") +
-              ("single", "single verified", "single provisional") +
-              ("double", "double verified", "double provisional")
-              )
+    ws.append(
+        ("id", "DUPR id", "full name", "gender", "age")
+        + ("single", "single verified", "single provisional")
+        + ("double", "double verified", "double provisional")
+    )
 
     for d in ptable:
         p = Player().from_json(d)
-        ws.append((
-            p.id, p.dupr_id, p.full_name, p.gender, p.age,
-            p.singles, p.singles_verified, p.singles_provisional,
-            p.doubles, p.doubles_verified, p.doubles_provisional))
-        player_ratings[p.id] = (p.singles, p.singles_verified, p.doubles, p.doubles_verified)
+        ws.append(
+            (
+                p.id,
+                p.dupr_id,
+                p.full_name,
+                p.gender,
+                p.age,
+                p.singles,
+                p.singles_verified,
+                p.singles_provisional,
+                p.doubles,
+                p.doubles_verified,
+                p.doubles_provisional,
+            )
+        )
+        player_ratings[p.id] = (
+            p.singles,
+            p.singles_verified,
+            p.doubles,
+            p.doubles_verified,
+        )
 
-    col = ws.column_dimensions['A']
-    col.number_format = u'#,##0'
+    col = ws.column_dimensions["A"]
+    col.number_format = "#,##0"
 
     ws = wb.create_sheet("matches")
 
-    prow = ("player1 DUPR ID", "player 1", "player1 doubles",
-            "player2 DUPR ID", "player 2", "player2 doubles",
-            "score1")
-    ws.append(("match id", "user_id", "match display", "event date", "confirmed", "format", "match type") +
-            prow + prow)
+    prow = (
+        "player1 DUPR ID",
+        "player 1",
+        "player1 doubles",
+        "player2 DUPR ID",
+        "player 2",
+        "player2 doubles",
+        "score1",
+    )
+    ws.append(
+        (
+            "match id",
+            "user_id",
+            "match display",
+            "event date",
+            "confirmed",
+            "format",
+            "match type",
+        )
+        + prow
+        + prow
+    )
     for d in mtable:
         m = Match().from_json(d)
         t1 = m.teams[0]
         t2 = m.teams[1]
-        ws.append((match_row(m) + team_row(m.teams[0], player_ratings) +
-                    team_row(m.teams[1], player_ratings)))
+        ws.append(
+            (
+                match_row(m)
+                + team_row(m.teams[0], player_ratings)
+                + team_row(m.teams[1], player_ratings)
+            )
+        )
 
-    col = ws.column_dimensions['A']
-    col.number_format = u'#,##0'
-    col = ws.column_dimensions['B']
-    col.number_format = u'#,##0'
-    col = ws.column_dimensions['J']
+    col = ws.column_dimensions["A"]
+    col.number_format = "#,##0"
+    col = ws.column_dimensions["B"]
+    col.number_format = "#,##0"
+    col = ws.column_dimensions["J"]
     col.format = numbers.FORMAT_TEXT
 
     wb.save(filename="dupr.xlsx")
@@ -215,7 +268,7 @@ def stats():
 @click.command()
 @click.argument("pid")
 def get_player(pid: int):
-    """ Get player from DUPR by ID """
+    """Get player from DUPR by ID"""
     dupr_auth()
     get_player_from_dupr(pid)
 
@@ -223,7 +276,7 @@ def get_player(pid: int):
 @click.command()
 @click.argument("pid")
 def delete_player(pid: int):
-    """ Get player from DUPR if necessary """
+    """Get player from DUPR if necessary"""
     logger.debug(f"delete player {pid} from database")
     pass
 
@@ -244,8 +297,9 @@ def test_db():
         # Has to use "has" not "any" because it is 1=1? Also need to have something
         # in the has() function
         # use sess.scalars instead of execute(...).scalars() for more concise use
-        dupr_ids = sess.scalars(select(Player.dupr_id).where(
-            ~Player.rating.has(Rating.doubles)))
+        dupr_ids = sess.scalars(
+            select(Player.dupr_id).where(~Player.rating.has(Rating.doubles))
+        )
     for i in dupr_ids:
         print(i)
 
@@ -259,14 +313,14 @@ def get_all_players():
 @click.command()
 @click.argument("dupr_id")
 def get_matches(dupr_id: int):
-    """ Get match history for specified player """
+    """Get match history for specified player"""
     dupr_auth()
     get_matches_from_dupr(dupr_id)
 
 
 @click.command()
 def get_data():
-    """ Update all data """
+    """Update all data"""
     logger.info("Getting data from DUPR...")
     dupr_auth()
     get_all_players_from_dupr()
