@@ -290,3 +290,36 @@ class DuprClient(object):
         # For now, just return 200 as a placeholder
         return 200
 
+
+    def get_expected_score(self, teams, event_format="DOUBLES", match_source="CLUB", 
+                          game_count=1, winning_score=11, match_type="SIDE_ONLY") -> tuple[int, dict]:
+        """
+        Get expected scores for a match between teams
+        
+        Args:
+            teams: List of teams, each team is a dict with player1Id and player2Id
+            event_format: "DOUBLES" or "SINGLES"
+            match_source: "CLUB", "TOURNAMENT", etc.
+            game_count: Number of games (default 1)
+            winning_score: Winning score (default 11)
+            match_type: "SIDE_ONLY", "SIDE_AND_SERVE", etc.
+            
+        Returns:
+            tuple: (status_code, expected_scores)
+        """
+        request_data = {
+            "teams": teams,
+            "eventFormat": event_format,
+            "matchSource": match_source,
+            "gameCount": game_count,
+            "winningScore": winning_score,
+            "matchType": match_type
+        }
+        
+        r = self.dupr_post(f'/match/{self.version}/expected-score', json_data=request_data, name="get_expected_score")
+        if r.status_code == 200:
+            self.ppj(r.json())
+            return r.status_code, r.json()
+        else:
+            return r.status_code, None
+

@@ -371,31 +371,71 @@ def search_players(query: str):
             print(f"   Status code: {rc}")
 
 
-@click.command()
-@click.argument("query")
-        
-        print(f"Found {total} players matching '{query}':")
-        print()
-        
-        for i, player in enumerate(hits, 1):
-            name = player.get('fullName', 'Unknown')
-            dupr_id = player.get('duprId', 'Unknown')
-            age = player.get('age', 'Unknown')
-            location = player.get('shortAddress', 'Unknown')
-            distance = player.get('distance', 'Unknown')
-            
-            ratings = player.get('ratings', {})
-            doubles = ratings.get('doubles', 'NR')
-            singles = ratings.get('singles', 'NR')
-            
-            print(f"{i:2d}. {name}")
-            print(f"    DUPR ID: {dupr_id}")
-            print(f"    Age: {age}, Location: {location}")
-            print(f"    Distance: {distance}")
-            print(f"    Doubles: {doubles}, Singles: {singles}")
-            print()
-    else:
-        print(f"❌ Search failed or no results found for '{query}'")
-        if rc != 200:
-            print(f"   Status code: {rc}")
 
+
+@click.command()
+@click.argument("player1_id")
+@click.argument("player2_id") 
+@click.argument("player3_id")
+@click.argument("player4_id")
+def expected_score(player1_id: int, player2_id: int, player3_id: int, player4_id: int):
+    """Get expected score for a doubles match between two teams"""
+    dupr_auth()
+    
+    teams = [
+        {"player1Id": int(player1_id), "player2Id": int(player2_id)},
+        {"player1Id": int(player3_id), "player2Id": int(player4_id)}
+    ]
+    
+    print(f"🎯 DUPR Expected Score Prediction")
+    print("=" * 50)
+    print(f"Team 1: Players {player1_id} & {player2_id}")
+    print(f"Team 2: Players {player3_id} & {player4_id}")
+    print()
+    
+    rc, results = dupr.get_expected_score(teams)
+    
+    if rc == 200 and results:
+        teams_result = results.get('teams', [])
+        if len(teams_result) >= 2:
+            team1_score = teams_result[0].get('score', 'N/A')
+            team2_score = teams_result[1].get('score', 'N/A')
+            
+            print(f"📊 Expected Scores:")
+            print(f"  Team 1: {team1_score}")
+            print(f"  Team 2: {team2_score}")
+            
+            # Determine winner
+            if isinstance(team1_score, (int, float)) and isinstance(team2_score, (int, float)):
+                if team1_score > team2_score:
+                    print(f"🏆 Predicted Winner: Team 1")
+                elif team2_score > team1_score:
+                    print(f"🏆 Predicted Winner: Team 2")
+                else:
+                    print(f"🤝 Predicted: Tie")
+        else:
+            print("❌ Invalid response format")
+    else:
+        print(f"❌ Failed to get expected score (status: {rc})")
+
+
+@click.group()
+def cli():
+    pass
+
+
+if __name__ == "__main__":
+    logger.add("duprly_{time}.log")
+    cli.add_command(get_data)
+    cli.add_command(write_excel)
+    cli.add_command(stats)
+    cli.add_command(get_all_players)
+    cli.add_command(get_player)
+    cli.add_command(delete_player)
+    cli.add_command(get_matches)
+    cli.add_command(update_ratings)
+    cli.add_command(build_match_detail)
+    cli.add_command(test_db)
+    cli.add_command(search_players)
+    cli.add_command(expected_score)
+    cli()
