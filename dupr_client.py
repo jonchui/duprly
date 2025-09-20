@@ -244,3 +244,49 @@ class DuprClient(object):
                 pdata.extend(hits)
 
         return r.status_code, pdata
+
+    def search_players(self, query: str, lat: float = 39.977763, lng: float = -105.1319296, 
+                      radius_meters: int = 16093400000, limit: int = 25, offset: int = 0) -> tuple[int, dict]:
+        """
+        Search for players by name and location
+        
+        Args:
+            query: Player name to search for
+            lat: Latitude for location-based search
+            lng: Longitude for location-based search  
+            radius_meters: Search radius in meters (default ~10,000 miles)
+            limit: Maximum number of results to return
+            offset: Offset for pagination
+            
+        Returns:
+            tuple: (status_code, search_results)
+        """
+        search_data = {
+            "filter": {
+                "radiusInMeters": radius_meters,
+                "lat": lat,
+                "lng": lng
+            },
+            "includeUnclaimedPlayers": True,
+            "address": {
+                "latitude": lat,
+                "longitude": lng
+            },
+            "offset": offset,
+            "limit": limit,
+            "query": query
+        }
+        
+        r = self.dupr_post(f'/player/{self.version}/search', json_data=search_data, name="search_players")
+        if r.status_code == 200:
+            self.ppj(r.json())
+            return r.status_code, r.json()["result"]
+        else:
+            return r.status_code, None
+
+    def refresh_user(self) -> int:
+        """ Refresh access token if needed """
+        # This would need to be implemented based on DUPR's refresh mechanism
+        # For now, just return 200 as a placeholder
+        return 200
+

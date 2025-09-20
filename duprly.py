@@ -330,22 +330,72 @@ def get_data():
 
     update_ratings_from_dupr()
 
+@click.command()
+@click.argument("query")
+def search_players(query: str):
+    """Search for players by name using DUPR search API"""
+    dupr_auth()
+    
+    print(f"🔍 Searching for players matching: '{query}'")
+    print("=" * 60)
+    
+    rc, results = dupr.search_players(query)
+    
+    if rc == 200 and results:
+        hits = results.get('hits', [])
+        total = results.get('total', 0)
+        
+        print(f"Found {total} players matching '{query}':")
+        print()
+        
+        for i, player in enumerate(hits, 1):
+            name = player.get('fullName', 'Unknown')
+            dupr_id = player.get('duprId', 'Unknown')
+            age = player.get('age', 'Unknown')
+            location = player.get('shortAddress', 'Unknown')
+            distance = player.get('distance', 'Unknown')
+            
+            ratings = player.get('ratings', {})
+            doubles = ratings.get('doubles', 'NR')
+            singles = ratings.get('singles', 'NR')
+            
+            print(f"{i:2d}. {name}")
+            print(f"    DUPR ID: {dupr_id}")
+            print(f"    Age: {age}, Location: {location}")
+            print(f"    Distance: {distance}")
+            print(f"    Doubles: {doubles}, Singles: {singles}")
+            print()
+    else:
+        print(f"❌ Search failed or no results found for '{query}'")
+        if rc != 200:
+            print(f"   Status code: {rc}")
 
-@click.group()
-def cli():
-    pass
 
+@click.command()
+@click.argument("query")
+        
+        print(f"Found {total} players matching '{query}':")
+        print()
+        
+        for i, player in enumerate(hits, 1):
+            name = player.get('fullName', 'Unknown')
+            dupr_id = player.get('duprId', 'Unknown')
+            age = player.get('age', 'Unknown')
+            location = player.get('shortAddress', 'Unknown')
+            distance = player.get('distance', 'Unknown')
+            
+            ratings = player.get('ratings', {})
+            doubles = ratings.get('doubles', 'NR')
+            singles = ratings.get('singles', 'NR')
+            
+            print(f"{i:2d}. {name}")
+            print(f"    DUPR ID: {dupr_id}")
+            print(f"    Age: {age}, Location: {location}")
+            print(f"    Distance: {distance}")
+            print(f"    Doubles: {doubles}, Singles: {singles}")
+            print()
+    else:
+        print(f"❌ Search failed or no results found for '{query}'")
+        if rc != 200:
+            print(f"   Status code: {rc}")
 
-if __name__ == "__main__":
-    logger.add("duprly_{time}.log")
-    cli.add_command(get_data)
-    cli.add_command(write_excel)
-    cli.add_command(stats)
-    cli.add_command(get_all_players)
-    cli.add_command(get_player)
-    cli.add_command(delete_player)
-    cli.add_command(get_matches)
-    cli.add_command(update_ratings)
-    cli.add_command(build_match_detail)
-    cli.add_command(test_db)
-    cli()
