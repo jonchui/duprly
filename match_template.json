@@ -1,0 +1,26 @@
+{
+  "matches": [
+    {
+      "round": "Round 1",
+      "team1": [
+        "Player1",
+        "Player2"
+      ],
+      "team2": [
+        "Player3",
+        "Player4"
+      ]
+    },
+    {
+      "round": "Round 2",
+      "team1": [
+        "Player5",
+        "Player6"
+      ],
+      "team2": [
+        "Player7",
+        "Player8"
+      ]
+    }
+  ]
+}

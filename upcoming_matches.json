@@ -1,0 +1,29 @@
+{
+  "matches": [
+    {
+      "round": "Round 1",
+      "team1": ["Milos Koprivica", "Robert Kuseski"],
+      "team2": ["Jonathan Chui", "Kirk White"]
+    },
+    {
+      "round": "Round 2",
+      "team1": ["Thomas Noonan", "Michael Fox"],
+      "team2": ["Jonathan Chui", "Kirk White"]
+    },
+    {
+      "round": "Round 3",
+      "team1": ["Leo Alvarez", "Nick Segura"],
+      "team2": ["Jonathan Chui", "Kirk White"]
+    },
+    {
+      "round": "Round 4",
+      "team1": ["Jonathan Chui", "Kirk White"],
+      "team2": ["Matthew Stephens", "Mike Hedges"]
+    },
+    {
+      "round": "Round 5",
+      "team1": ["Jonathan Chui", "Kirk White"],
+      "team2": ["Sean Tansey", "John Marcelia"]
+    }
+  ]
+}
