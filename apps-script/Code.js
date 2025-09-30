@@ -397,21 +397,38 @@ function searchPlayByPointUsers(query) {
   const base = CONFIG.PBP.BASE_URL;
   const facilityId = CONFIG.PBP.FACILITY_ID;
   const url = `${base}/api/users.json?q=${encodeURIComponent(query)}&court_id=&include_child=1&facility_id=${encodeURIComponent(facilityId)}&show_affiliation=&rating_provider=dupr`;
+  const referer = `${base}/admin/facilities/thepicklrthornton/manage_bookings`;
 
   const headers = {
     "X-CSRF-Token": csrf,
     "X-Requested-With": "XMLHttpRequest",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "User-Agent": "AppsScript",
+    Accept: "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "en-US,en;q=0.9",
+    Origin: base,
+    Referer: referer,
+    // Use a browser-like UA; some CDNs/WAFs block generic agents
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     Cookie: cookie,
   };
 
   try {
-    const resp = UrlFetchApp.fetch(url, {
+    let resp = UrlFetchApp.fetch(url, {
       method: "GET",
       headers,
       muteHttpExceptions: true,
     });
+    if (resp.getResponseCode() === 403) {
+      // Attempt to refresh CSRF token from facility page and retry once
+      const newToken = refreshPbpCsrfToken(cookie);
+      if (newToken) {
+        headers["X-CSRF-Token"] = newToken;
+        resp = UrlFetchApp.fetch(url, {
+          method: "GET",
+          headers,
+          muteHttpExceptions: true,
+        });
+      }
+    }
     if (resp.getResponseCode() !== 200) {
       console.error("PBP search failed:", resp.getResponseCode(), resp.getContentText());
       return [];
@@ -421,6 +438,42 @@ function searchPlayByPointUsers(query) {
   } catch (e) {
     console.error("Error calling PBP:", e);
     return [];
+  }
+}
+
+/**
+ * Refresh and persist the PlayByPoint CSRF token by scraping the facility page.
+ */
+function refreshPbpCsrfToken(cookie) {
+  try {
+    const base = CONFIG.PBP.BASE_URL;
+    // Use a stable admin page that includes <meta name="csrf-token" content="...">
+    const url = `${base}/admin/facilities/${encodeURIComponent(CONFIG.PBP.FACILITY_ID)}/manage_bookings`;
+    const resp = UrlFetchApp.fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Cookie: cookie,
+      },
+      muteHttpExceptions: true,
+    });
+    if (resp.getResponseCode() !== 200) {
+      console.error("Failed to load PBP page for CSRF refresh:", resp.getResponseCode());
+      return null;
+    }
+    const html = resp.getContentText();
+    const match = html.match(/<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)["']/i);
+    const token = match ? match[1] : null;
+    if (token) {
+      PropertiesService.getScriptProperties().setProperty("PBP_CSRF", token);
+      console.log("Refreshed PBP CSRF token");
+    }
+    return token;
+  } catch (e) {
+    console.error("Error refreshing PBP CSRF token:", e);
+    return null;
   }
 }
 
