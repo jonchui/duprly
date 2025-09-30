@@ -1,7 +1,6 @@
 {
   "timeZone": "America/Denver",
   "dependencies": {
-    "enabledAdvancedServices": []
   },
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8"
