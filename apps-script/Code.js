@@ -15,11 +15,7 @@
 
 // ===== CONFIGURATION =====
 const CONFIG = {
-  // Your DUPR API credentials (username/password like duprly.py)
-  DUPR_USERNAME: "YOUR_DUPR_USERNAME_HERE", // Replace with your DUPR email
-  DUPR_PASSWORD: "YOUR_DUPR_PASSWORD_HERE", // Replace with your DUPR password
-
-  // Your club information
+  // Your club information (public)
   CLUB_ID: "YOUR_CLUB_ID_HERE", // Replace with your DUPR club ID
 
   // Google Sheets configuration
@@ -77,6 +73,50 @@ const CONFIG = {
     HISTORICAL: "DUPR_History", // Historical DUPR tracking (3rd sheet)
   },
 };
+
+// ===== SECURE CREDENTIAL MANAGEMENT =====
+/**
+ * Get DUPR credentials from secure storage
+ */
+function getDUPRCredentials() {
+  const props = PropertiesService.getScriptProperties();
+  return {
+    username: props.getProperty("DUPR_USERNAME"),
+    password: props.getProperty("DUPR_PASSWORD"),
+    clubId: CONFIG.CLUB_ID,
+  };
+}
+
+/**
+ * Setup credentials securely (manual setup)
+ * Run this function in the Apps Script editor to set your credentials
+ */
+function setupCredentials() {
+  const ui = SpreadsheetApp.getUi();
+  const username = ui.prompt("Enter DUPR Username (Email):").getResponseText();
+  const password = ui.prompt("Enter DUPR Password:").getResponseText();
+  
+  if (username && password) {
+    PropertiesService.getScriptProperties().setProperties({
+      DUPR_USERNAME: username,
+      DUPR_PASSWORD: password,
+    });
+    ui.alert("✅ Credentials stored securely!");
+    console.log("Credentials stored successfully");
+  } else {
+    ui.alert("❌ Please provide both username and password");
+  }
+}
+
+/**
+ * Setup credentials from CI/CD (automated)
+ * This function is called by the GitHub Actions workflow
+ */
+function setupCredentialsFromCI() {
+  // This function will be populated by the CI/CD pipeline
+  // with actual credentials from GitHub secrets
+  console.log('Setting up credentials from CI/CD...');
+}
 
 // ===== MAIN FUNCTIONS =====
 
@@ -226,13 +266,19 @@ function processPlayer(sheet, row) {
  * Authenticate with DUPR using username/password (like duprly.py)
  */
 function authenticateDUPR() {
+  const credentials = getDUPRCredentials();
+  if (!credentials.username || !credentials.password) {
+    console.error("❌ DUPR credentials not configured. Run setupCredentials() first.");
+    return null;
+  }
+
   const url = `${
     CONFIG.DUPR_API_URL || "https://api.dupr.gg"
   }/auth/v1.0/login/`;
 
   const payload = {
-    email: CONFIG.DUPR_USERNAME,
-    password: CONFIG.DUPR_PASSWORD,
+    email: credentials.username,
+    password: credentials.password,
   };
 
   try {
