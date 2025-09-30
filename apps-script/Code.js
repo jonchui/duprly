@@ -23,20 +23,21 @@ const CONFIG = {
 
   // Column mappings for different sheets
   COLUMNS: {
-    // Main sheet (where we process players)
+    // Main sheet (where we process players) - ACTUAL STRUCTURE
     MAIN: {
       ID_CODE: "A", // ID/Code (94VNXK, YGRGQP, etc.)
       FULL_NAME: "B", // Full Name (Abner, Adam Johnson, etc.)
-      DOUBLES_DUPR: "C", // Doubles DUPR (existing)
-      EMAIL: "D", // Email
-      PHONE: "E", // Phone
-      ADDRESS: "F", // Address
-      MEMBERSHIP_PLAN: "G", // Membership Plan
-      NOTES: "H", // Notes column (new)
-      DUPR_ID: "I", // DUPR ID (new)
-      DUPR_RATING: "J", // DUPR Rating (new)
-      STATUS: "K", // Status (new)
-      TIMESTAMP: "L", // Timestamp (new)
+      EMAIL: "C", // Email
+      PHONE: "D", // Phone
+      DOUBLES_DUPR: "E", // Doubles DUPR (existing)
+      DOUBLES_RELIABILITY: "F", // Double Reliability
+      SINGLES_DUPR: "G", // Singles DUPR
+      SINGLES_RELIABILITY: "H", // Singles Reliability
+      NOTES: "I", // Notes column
+      DUPR_ID: "J", // DUPR ID (new)
+      DUPR_RATING: "K", // DUPR Rating (new)
+      STATUS: "L", // Status (new)
+      TIMESTAMP: "M", // Timestamp (new)
     },
     
     // DUPR sheet (existing sheet with current ratings)
@@ -510,8 +511,13 @@ function updateDUPRSheet(firstName, lastName, playerData) {
 
   try {
     duprSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.DUPR);
+    if (!duprSheet) {
+      console.error(`DUPR sheet "${CONFIG.SHEETS.DUPR}" not found. Available sheets:`, 
+        spreadsheet.getSheets().map(s => s.getName()));
+      return;
+    }
   } catch (error) {
-    console.error("DUPR sheet not found:", error);
+    console.error("Error accessing DUPR sheet:", error);
     return;
   }
 
@@ -572,8 +578,13 @@ function addToHistorical(firstName, lastName, playerData) {
 
   try {
     historicalSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.HISTORICAL);
+    if (!historicalSheet) {
+      console.error(`Historical sheet "${CONFIG.SHEETS.HISTORICAL}" not found. Available sheets:`, 
+        spreadsheet.getSheets().map(s => s.getName()));
+      return;
+    }
   } catch (error) {
-    console.error("Historical sheet not found:", error);
+    console.error("Error accessing historical sheet:", error);
     return;
   }
 
