@@ -25,6 +25,7 @@ const CONFIG = {
   PBP: {
     BASE_URL: "https://app.playbypoint.com",
     FACILITY_ID: "983", // Replace with your facility id
+    FACILITY_SLUG: "thepicklrthornton", // Optional: pretty path used in Referer
   },
 
   // Column mappings for different sheets
@@ -106,6 +107,11 @@ function setupCredentials() {
   const pbpCookie = ui
     .prompt("Enter PlayByPoint Cookie header (optional):")
     .getResponseText();
+  const pbpReferer = ui
+    .prompt("Enter PlayByPoint Referer URL (optional):")
+    .getResponseText();
+  const pbpBaggage = ui.prompt("Enter PlayByPoint 'baggage' header (optional):").getResponseText();
+  const pbpSentry = ui.prompt("Enter PlayByPoint 'sentry-trace' header (optional):").getResponseText();
   
   if (username && password) {
     PropertiesService.getScriptProperties().setProperties({
@@ -113,6 +119,9 @@ function setupCredentials() {
       DUPR_PASSWORD: password,
       PBP_CSRF: pbpCsrf || "",
       PBP_COOKIE: pbpCookie || "",
+      PBP_REFERER: pbpReferer || "",
+      PBP_BAGGAGE: pbpBaggage || "",
+      PBP_SENTRY_TRACE: pbpSentry || "",
     });
     ui.alert("✅ Credentials stored securely!");
     console.log("Credentials stored successfully");
@@ -389,6 +398,9 @@ function searchPlayByPointUsers(query) {
   const props = PropertiesService.getScriptProperties();
   const csrf = props.getProperty("PBP_CSRF");
   const cookie = props.getProperty("PBP_COOKIE");
+  const customReferer = props.getProperty("PBP_REFERER");
+  const baggage = props.getProperty("PBP_BAGGAGE");
+  const sentryTrace = props.getProperty("PBP_SENTRY_TRACE");
   if (!csrf || !cookie) {
     console.log("PlayByPoint credentials missing. Run setupCredentials() to set PBP_CSRF and PBP_COOKIE.");
     return [];
@@ -397,7 +409,7 @@ function searchPlayByPointUsers(query) {
   const base = CONFIG.PBP.BASE_URL;
   const facilityId = CONFIG.PBP.FACILITY_ID;
   const url = `${base}/api/users.json?q=${encodeURIComponent(query)}&court_id=&include_child=1&facility_id=${encodeURIComponent(facilityId)}&show_affiliation=&rating_provider=dupr`;
-  const referer = `${base}/admin/facilities/thepicklrthornton/manage_bookings`;
+  const referer = customReferer || `${base}/admin/facilities/${encodeURIComponent(CONFIG.PBP.FACILITY_SLUG || CONFIG.PBP.FACILITY_ID)}/manage_bookings`;
 
   const headers = {
     "X-CSRF-Token": csrf,
@@ -413,6 +425,10 @@ function searchPlayByPointUsers(query) {
     "Sec-Fetch-Dest": "empty",
     Origin: base,
     Referer: referer,
+    Host: "app.playbypoint.com",
+    Connection: "keep-alive",
+    Baggage: baggage || undefined,
+    "sentry-trace": sentryTrace || undefined,
     // Use a browser-like UA; some CDNs/WAFs block generic agents
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     Cookie: cookie,
