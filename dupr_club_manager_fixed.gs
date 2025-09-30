@@ -25,19 +25,18 @@ const CONFIG = {
 
   // Column mappings (actual sheet structure)
   COLUMNS: {
-    FIRST_NAME: "A", // First Name
-    LAST_NAME: "B", // Last Name
+    ID_CODE: "A", // ID/Code (94VNXK, YGRGQP, etc.)
+    FULL_NAME: "B", // Full Name (Abner, Adam Johnson, etc.)
     DOUBLES_DUPR: "C", // Doubles DUPR (existing)
     EMAIL: "D", // Email
     PHONE: "E", // Phone
     ADDRESS: "F", // Address
     MEMBERSHIP_PLAN: "G", // Membership Plan
-    FULL_NAME: "H", // Full Name
-    NOTES: "I", // Notes column (new)
-    DUPR_ID: "J", // DUPR ID (new)
-    DUPR_RATING: "K", // DUPR Rating (new)
-    STATUS: "L", // Status (new)
-    TIMESTAMP: "M", // Timestamp (new)
+    NOTES: "H", // Notes column (new)
+    DUPR_ID: "I", // DUPR ID (new)
+    DUPR_RATING: "J", // DUPR Rating (new)
+    STATUS: "K", // Status (new)
+    TIMESTAMP: "L", // Timestamp (new)
   },
 
   // Sheet names
@@ -117,19 +116,30 @@ function processAllPlayers() {
  * Process a single player
  */
 function processPlayer(sheet, row) {
-  const firstName = getCellValue(sheet, row, CONFIG.COLUMNS.FIRST_NAME);
-  const lastName = getCellValue(sheet, row, CONFIG.COLUMNS.LAST_NAME);
+  const idCode = getCellValue(sheet, row, CONFIG.COLUMNS.ID_CODE);
+  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.FULL_NAME);
   const email = getCellValue(sheet, row, CONFIG.COLUMNS.EMAIL);
   const phone = getCellValue(sheet, row, CONFIG.COLUMNS.PHONE);
 
-  if (!firstName || !lastName) {
+  if (!fullName) {
     addNote(sheet, row, "SKIP: Missing name");
     updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "SKIP: Missing name");
     return;
   }
 
-  console.log(`Processing: ${firstName} ${lastName}`);
-  addNote(sheet, row, `Started processing ${firstName} ${lastName}`);
+  // Parse first and last name from full name
+  const nameParts = fullName.trim().split(' ');
+  const firstName = nameParts[0];
+  const lastName = nameParts.slice(1).join(' '); // Handle multiple last names
+
+  if (!firstName) {
+    addNote(sheet, row, "SKIP: Invalid name format");
+    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "SKIP: Invalid name format");
+    return;
+  }
+
+  console.log(`Processing: ${fullName} (${idCode})`);
+  addNote(sheet, row, `Started processing ${fullName} (${idCode})`);
 
   // Search for player in DUPR
   const searchResults = searchDUPRPlayer(firstName, lastName);
@@ -399,7 +409,7 @@ function addNote(sheet, row, message) {
     console.error("Sheet is undefined - cannot add note");
     return;
   }
-  
+
   const now = new Date();
   const timestamp = Utilities.formatDate(
     now,
@@ -595,14 +605,13 @@ function createHistoricalSheet() {
  */
 function setupHeaders(sheet) {
   const headers = [
-    "First Name",
-    "Last Name",
+    "ID Code",
+    "Full Name",
     "Doubles DUPR",
     "Email",
     "Phone",
     "Address",
     "Membership Plan",
-    "Full Name",
     "Notes",
     "DUPR ID",
     "DUPR Rating",
@@ -697,15 +706,15 @@ function testFirstEntry() {
 
   console.log(`Testing FIRST entry (row ${row})...`);
 
-  const firstName = getCellValue(sheet, row, CONFIG.COLUMNS.FIRST_NAME);
-  const lastName = getCellValue(sheet, row, CONFIG.COLUMNS.LAST_NAME);
+  const idCode = getCellValue(sheet, row, CONFIG.COLUMNS.ID_CODE);
+  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.FULL_NAME);
 
-  if (!firstName || !lastName) {
+  if (!fullName) {
     console.log("❌ First entry has no name data");
     return;
   }
 
-  console.log(`Testing: ${firstName} ${lastName}`);
+  console.log(`Testing: ${fullName} (${idCode})`);
   processPlayer(sheet, row);
 }
 
@@ -718,15 +727,15 @@ function testLastEntry() {
 
   console.log(`Testing LAST entry (row ${lastRow})...`);
 
-  const firstName = getCellValue(sheet, lastRow, CONFIG.COLUMNS.FIRST_NAME);
-  const lastName = getCellValue(sheet, lastRow, CONFIG.COLUMNS.LAST_NAME);
+  const idCode = getCellValue(sheet, lastRow, CONFIG.COLUMNS.ID_CODE);
+  const fullName = getCellValue(sheet, lastRow, CONFIG.COLUMNS.FULL_NAME);
 
-  if (!firstName || !lastName) {
+  if (!fullName) {
     console.log("❌ Last entry has no name data");
     return;
   }
 
-  console.log(`Testing: ${firstName} ${lastName}`);
+  console.log(`Testing: ${fullName} (${idCode})`);
   processPlayer(sheet, lastRow);
 }
 
