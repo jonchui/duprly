@@ -395,6 +395,11 @@ function updatePlayerData(sheet, row, playerData) {
  * Add a note to the notes column with timestamp
  */
 function addNote(sheet, row, message) {
+  if (!sheet) {
+    console.error("Sheet is undefined - cannot add note");
+    return;
+  }
+  
   const now = new Date();
   const timestamp = Utilities.formatDate(
     now,
@@ -427,14 +432,19 @@ function updateDUPRSheet(firstName, lastName, playerData) {
   const ratings = playerData.ratings || {};
   const doublesRating = ratings.doubles || "NR";
   const singlesRating = ratings.singles || "NR";
-  const doublesReliability = ratings.doublesVerified ? "Verified" : "Unverified";
-  const singlesReliability = ratings.singlesVerified ? "Verified" : "Unverified";
+  const doublesReliability = ratings.doublesVerified
+    ? "Verified"
+    : "Unverified";
+  const singlesReliability = ratings.singlesVerified
+    ? "Verified"
+    : "Unverified";
 
   // Check if player already exists in DUPR sheet
   const lastRow = duprSheet.getLastRow();
   let existingRow = null;
-  
-  for (let row = 2; row <= lastRow; row++) { // Skip header row
+
+  for (let row = 2; row <= lastRow; row++) {
+    // Skip header row
     const existingDuprId = duprSheet.getRange(row, 1).getValue(); // DUPR_ID column
     if (existingDuprId == duprId) {
       existingRow = row;
@@ -456,7 +466,9 @@ function updateDUPRSheet(firstName, lastName, playerData) {
   if (existingRow) {
     // Update existing row
     duprSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
-    console.log(`Updated existing player ${firstName} ${lastName} in DUPR sheet`);
+    console.log(
+      `Updated existing player ${firstName} ${lastName} in DUPR sheet`
+    );
   } else {
     // Add new row
     duprSheet.appendRow(rowData);
@@ -521,13 +533,13 @@ function setupDUPRSheetHeaders() {
   if (!hasHeaders) {
     const headers = [
       "DUPR_ID",
-      "Full Name", 
+      "Full Name",
       "Email",
       "Phone",
       "Doubles DUPR",
       "Double Reliability",
       "Singles DUPR",
-      "Singles Reliability"
+      "Singles Reliability",
     ];
 
     duprSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -624,10 +636,23 @@ function getCellValue(sheet, row, column) {
  */
 function updateCell(sheet, row, column, value) {
   try {
+    if (!sheet) {
+      console.error("Sheet is undefined - cannot update cell");
+      return;
+    }
     sheet.getRange(`${column}${row}`).setValue(value);
   } catch (error) {
     console.error(`Error updating cell ${column}${row}:`, error);
   }
+}
+
+/**
+ * Process a single player by row number (gets sheet automatically)
+ */
+function processSinglePlayer(rowNumber) {
+  const sheet = SpreadsheetApp.getActiveSheet();
+  console.log(`Processing player in row ${rowNumber}...`);
+  processPlayer(sheet, rowNumber);
 }
 
 // ===== TESTING FUNCTIONS =====
