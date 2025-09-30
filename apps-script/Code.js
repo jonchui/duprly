@@ -26,6 +26,19 @@ const CONFIG = {
     BASE_URL: "https://app.playbypoint.com",
     FACILITY_ID: "983", // Replace with your facility id
     FACILITY_SLUG: "thepicklrthornton", // Optional: pretty path used in Referer
+    DEFAULTS: {
+      CSRF_TOKEN: "VUgiQG3hSPV1-wlDlq0qaxMLl7Tr5WpkwmBWmGpkAnJbg8KJSQ1iKlia3mrDj0iE9HKkV3lqN8K0i7jT89EP4g",
+      REFERER: "https://app.playbypoint.com/admin/facilities/thepicklrthornton/manage_bookings",
+      BAGGAGE: "sentry-environment=production,sentry-public_key=ab3697c86cfee424c79bdb37a8edda90,sentry-trace_id=f6443729c758459fa957b5f8f72efe3b,sentry-sampled=true,sentry-sample_rand=0.010835465593402205,sentry-sample_rate=0.05",
+      SENTRY_TRACE: "f6443729c758459fa957b5f8f72efe3b-90b2f2676c020c40-1",
+      UA: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      SEC_CH_UA: '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+      SEC_CH_UA_MOBILE: "?0",
+      SEC_CH_UA_PLATFORM: '"macOS"',
+      ACCEPT: "application/json, text/javascript, */*; q=0.01",
+      ACCEPT_LANGUAGE: "en-US,en;q=0.9",
+      COOKIE: `'_hjSessionUser_3433560=eyJpZCI6ImRmNGMyOTcxLWM0MDktNTE1MS1hYzA0LWMxMDhjZWIxODZkYiIsImNyZWF0ZWQiOjE3NTQ5NTE0NjQ3MDIsImV4aXN0aW5nIjpmYWxzZX0=; _ga=GA1.1.1774985913.1754951464; intercom-id-u1mtnxxh=f679f570-c178-4395-8c31-6e4736c0fd2f; intercom-device-id-u1mtnxxh=48959797-79e7-450d-9d5c-abe210bf2508; __stripe_mid=561e17dc-db33-442d-9526-b7ce2a50061edf3591; sa-user-id=s%253A0-709e0d08-ddcb-5982-564a-7188082ac8f8.GEweAFQEwfiqvYVIMX5Yv7eRd%252FTqAZp%252FG8hdCi0pZL0; sa-user-id-v2=s%253AcJ4NCN3LWYJWSnGICCrI-AQgccM.29MY21xerftY3Sf%252BuHz1NK3oHOv3ROmcqtEh%252FPGbzkk; sa-user-id-v3=s%253AAQAKIAor-h1RkEIGgCXs7MKRqb1-5rd3Tx1xeL2kyi1hfzxMEAMYAyDBg5bBBjABOgQv-638QgTgfqgD.F1f%252BUCJrGovqrW6HmhezFV8DP0UdQUu1XT%252BN35gNCgQ; sa-r-source=www.google.com; ajs_anonymous_id=%228a29e2a4-1f04-4a9a-ad83-cd84cf4948e9%22; hubspotutk=a6502a217d6d014c11e387325cd68e3e; _gcl_au=1.1.2050280770.1754951463.1813481787.1758832970.1758832974; remember_user_token=eyJfcmFpbHMiOnsibWVzc2FnZSI6Ilcxc3hOVGN6T1RBMFhTd2lWMmgyTVVVMVUwRkRSa1pZT0dkaVUxbG5hRlVpTENJeE56VTRPRE15T1RjMUxqTXdPRGs1T1RVaVhRPT0iLCJleHAiOiIyMDI1LTEwLTI1VDIwOjQyOjU1LjMwOVoiLCJwdXIiOiJjb29raWUucmVtZW1iZXJfdXNlcl90b2tlbiJ9fQ%3D%3D--951dde3ad228a83ac2bfd0735f303cf41b89ea44; sa-r-date=2025-09-25T23:13:59.867Z; __hstc=91698565.a6502a217d6d014c11e387325cd68e3e.1757693943587.1758842047692.1758855755705.4; _clck=1riar3g%5E2%5Efzr%5E0%5E2071; __stripe_sid=d6a43dd9-a5ce-4968-ad6d-bcbd71f8aa786c0317; _ga_M060445B8S=GS2.1.s1759212879$o38$g1$t1759212885$j54$l0$h0; _ga_RP1D1ZTH5S=GS2.1.s1759212879$o27$g1$t1759212885$j54$l0$h1948541772; _clsk=1gt5gwh%5E1759212886545%5E3%5E1%5Eb.clarity.ms%2Fcollect; intercom-session-u1mtnxxh=enF2Q1p1Y3N5Y2d4T3VnSWROTlp1akxud0o4UVZha0htMFY5aThlQUpqOXFWSHJkcm12UHZPVTBKdTZ2MjJYakhIZUVYdWtWcm1NVTlIejFmUDZxcjJHQnQrVlVkVFBXUVN2b2dacmdLVDA9LS01NUxValRsUFVUczZkNTY4TFpQQU9RPT0=--e9f93227e66ae27bbe441afe7c5288193e9c5bd4; _paybycourt_session=tREPYD5jIAwrng%2FMUPggKCNve0W6R37QmNKuXg6Q6jxCHjYKha52xF3P9H4RaccnKV5Uxq%2BAndqlhTY%2FDmJpg7YvIdUcDFOlRFSp5R2ZLaBpb14XBIdyrx99g4FQGBig9Cd5rYw3%2BSi9Gx9Blp9jpJgwkuAnxi3gI9rKsVvwnhQe15V8MTung2%2FGYffQW715RTPKGNR6w2OCDP3rMtCelNvy6CWRXxt%2Bd%2Ff7emboQOLpJ3zaKDGbIntouZ%2FfYFgirphOaUIrglYfHx2ExUXsIQzFJm%2BfdV7h8AuB0x%2B%2BcTpY3ob80dr8NerWtcJ2bxn7V7VvmFu6HbGucwaXZYGYmVzeLoYBu%2FTt3NzzkGP9CUVzUmOGtoGkrBgXaoXfaiIT2OTVDz0FC8tB5qjvBdP8FMww5ETrnj7XuuucHuyipHqOQ2KMutvW8%2BzIYpHIMPlNVCOCyhtpvjQgfnUnDE6OZ5f3s%2B4fL7Y0uVAAQca3Ow%2B01Wypa8IYQsor4OAW1dbcXXbKD8brb46KWK2RVkwhelFSNQ%3D%3D--rKmtt5z4IGuQaLzX--%2FZqcLxhr4wmRNn7GA4r7Jg%3D%3D'`,
+    },
   },
 
   // Column mappings for different sheets
@@ -396,11 +409,11 @@ function authenticateDUPR() {
  */
 function searchPlayByPointUsers(query) {
   const props = PropertiesService.getScriptProperties();
-  const csrf = props.getProperty("PBP_CSRF");
-  const cookie = props.getProperty("PBP_COOKIE");
-  const customReferer = props.getProperty("PBP_REFERER");
-  const baggage = props.getProperty("PBP_BAGGAGE");
-  const sentryTrace = props.getProperty("PBP_SENTRY_TRACE");
+  const csrf = props.getProperty("PBP_CSRF") || CONFIG.PBP.DEFAULTS.CSRF_TOKEN;
+  const cookie = props.getProperty("PBP_COOKIE") || CONFIG.PBP.DEFAULTS.COOKIE;
+  const customReferer = props.getProperty("PBP_REFERER") || CONFIG.PBP.DEFAULTS.REFERER;
+  const baggage = props.getProperty("PBP_BAGGAGE") || CONFIG.PBP.DEFAULTS.BAGGAGE;
+  const sentryTrace = props.getProperty("PBP_SENTRY_TRACE") || CONFIG.PBP.DEFAULTS.SENTRY_TRACE;
   if (!csrf || !cookie) {
     console.log("PlayByPoint credentials missing. Run setupCredentials() to set PBP_CSRF and PBP_COOKIE.");
     return [];
@@ -417,9 +430,9 @@ function searchPlayByPointUsers(query) {
     Accept: "application/json, text/javascript, */*; q=0.01",
     "Accept-Language": "en-US,en;q=0.9",
     // Extra browser-like client hints and fetch metadata
-    "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"macOS"',
+    "sec-ch-ua": CONFIG.PBP.DEFAULTS.SEC_CH_UA,
+    "sec-ch-ua-mobile": CONFIG.PBP.DEFAULTS.SEC_CH_UA_MOBILE,
+    "sec-ch-ua-platform": CONFIG.PBP.DEFAULTS.SEC_CH_UA_PLATFORM,
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Dest": "empty",
@@ -430,7 +443,7 @@ function searchPlayByPointUsers(query) {
     Baggage: baggage || undefined,
     "sentry-trace": sentryTrace || undefined,
     // Use a browser-like UA; some CDNs/WAFs block generic agents
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": CONFIG.PBP.DEFAULTS.UA,
     Cookie: cookie,
   };
 
