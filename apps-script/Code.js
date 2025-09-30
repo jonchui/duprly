@@ -404,6 +404,13 @@ function searchPlayByPointUsers(query) {
     "X-Requested-With": "XMLHttpRequest",
     Accept: "application/json, text/javascript, */*; q=0.01",
     "Accept-Language": "en-US,en;q=0.9",
+    // Extra browser-like client hints and fetch metadata
+    "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
     Origin: base,
     Referer: referer,
     // Use a browser-like UA; some CDNs/WAFs block generic agents
@@ -498,13 +505,7 @@ function pbpLookupActiveRow() {
   const results = searchPlayByPointUsers(query);
   console.log("PBP results:", JSON.stringify(results.slice(0, 3), null, 2));
   if (results.length) {
-    let u = results[0];
-    // Prefer exact email match when searching by email
-    if (email) {
-      const lower = String(email).toLowerCase();
-      const exact = results.find(r => (r.email && String(r.email).toLowerCase() === lower) || (r.user_child_name && String(r.user_child_name).toLowerCase() === lower));
-      if (exact) u = exact;
-    }
+    const u = chooseBestPbpUser(results, email);
     const doubles = u.current_rating?.double ?? "";
     const singles = u.current_rating?.single ?? "";
     if (doubles || singles) {
@@ -530,17 +531,37 @@ function pbpSearchName(name) {
     return;
   }
   const results = searchPlayByPointUsers(query);
-  // When searching by email, surface the exact match first if present
-  if (email && results && results.length) {
-    const lower = String(email).toLowerCase();
+  // Reorder to put best match first using email and Adult priority
+  if (results && results.length) {
+    const lower = email ? String(email).toLowerCase() : null;
     results.sort((a, b) => {
-      const aExact = (a.email && String(a.email).toLowerCase() === lower) || (a.user_child_name && String(a.user_child_name).toLowerCase() === lower);
-      const bExact = (b.email && String(b.email).toLowerCase() === lower) || (b.user_child_name && String(b.user_child_name).toLowerCase() === lower);
-      return (aExact === bExact) ? 0 : (aExact ? -1 : 1);
+      const aExact = lower && ((a.email && String(a.email).toLowerCase() === lower) || (a.user_child_name && String(a.user_child_name).toLowerCase() === lower));
+      const bExact = lower && ((b.email && String(b.email).toLowerCase() === lower) || (b.user_child_name && String(b.user_child_name).toLowerCase() === lower));
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      const aAdult = String(a.user_type_tag || "").toLowerCase() === "adult";
+      const bAdult = String(b.user_type_tag || "").toLowerCase() === "adult";
+      if (aAdult !== bAdult) return aAdult ? -1 : 1;
+      return 0;
     });
   }
   console.log("PBP query:", query);
   console.log("PBP results:", JSON.stringify(results.slice(0, 10), null, 2));
+}
+
+/**
+ * Choose best PBP user result based on email and Adult priority
+ */
+function chooseBestPbpUser(results, email) {
+  if (!results || !results.length) return null;
+  const lower = email ? String(email).toLowerCase() : null;
+  if (lower) {
+    const exactAdult = results.find(r => (r.email && String(r.email).toLowerCase() === lower || r.user_child_name && String(r.user_child_name).toLowerCase() === lower) && String(r.user_type_tag || "").toLowerCase() === "adult");
+    if (exactAdult) return exactAdult;
+    const exactAny = results.find(r => (r.email && String(r.email).toLowerCase() === lower) || (r.user_child_name && String(r.user_child_name).toLowerCase() === lower));
+    if (exactAny) return exactAny;
+  }
+  const firstAdult = results.find(r => String(r.user_type_tag || "").toLowerCase() === "adult");
+  return firstAdult || results[0];
 }
 
 /**
