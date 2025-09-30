@@ -35,7 +35,7 @@ jobs:
           # Create a temporary script to set credentials
           cat > setup_credentials.js << 'EOF'
           const { execSync } = require('child_process');
-          
+
           // Set credentials in Google Apps Script
           const script = `
           function setupCredentialsFromCI() {
@@ -46,16 +46,44 @@ jobs:
             console.log('Credentials set from CI/CD');
           }
           `;
-          
+
           // Write to a temporary file and push
           require('fs').writeFileSync('apps-script/SetupCredentials.gs', script);
           EOF
-          
+
           node setup_credentials.js
 
       - name: Push to Google Apps Script
         run: |
           clasp push --force
+
+      - name: GitFlow Deployment
+        run: |
+          # Get git info for deployment
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          GIT_MESSAGE=$(git log -1 --pretty=format:"%s")
+          BRANCH=$(git branch --show-current)
+
+          # Determine deployment type based on branch
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            DEPLOY_TYPE="PRODUCTION"
+            VERSION_PREFIX="PROD"
+          elif [[ "$BRANCH" == "develop" || "$BRANCH" == "dev" ]]; then
+            DEPLOY_TYPE="STAGING"
+            VERSION_PREFIX="STAGING"
+          elif [[ "$BRANCH" == feature/* || "$BRANCH" == bugfix/* || "$BRANCH" == hotfix/* ]]; then
+            DEPLOY_TYPE="FEATURE"
+            VERSION_PREFIX="FEATURE"
+          else
+            DEPLOY_TYPE="DEVELOPMENT"
+            VERSION_PREFIX="DEV"
+          fi
+
+          # Create version with GitFlow info
+          clasp version "$VERSION_PREFIX: $GIT_COMMIT - $GIT_MESSAGE"
+
+          # Create deployment with GitFlow info
+          clasp deploy --description "$DEPLOY_TYPE: $GIT_COMMIT - $GIT_MESSAGE (Branch: $BRANCH)"
 
       - name: Run tests (optional)
         run: |
