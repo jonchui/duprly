@@ -1,0 +1,16 @@
+# DUPR Club Manager - GitFlow Sync Configuration
+
+# Auto-sync settings
+DUPR_AUTO_SYNC_ON_COMMIT=0  # Set to 1 to auto-sync after every commit
+DUPR_AUTO_SYNC_ON_PUSH=1    # Set to 1 to auto-sync after every push
+DUPR_VERSION_PREFIX="PRODUCTION"  # Prefix for clasp versions
+
+# Branch settings
+DUPR_SYNC_BRANCHES="main,master"  # Comma-separated list of branches to sync
+
+# Notification settings
+DUPR_NOTIFY_SUCCESS=1  # Show success messages
+DUPR_NOTIFY_ERRORS=1   # Show error messages
+
+# Clasp settings
+DUPR_CLASP_PROJECT_ID=""  # Will be read from .clasp.json

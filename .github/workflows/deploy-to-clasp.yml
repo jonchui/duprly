@@ -1,0 +1,51 @@
+name: Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'apps-script/**'
+      - '.clasp.json'
+  workflow_dispatch: # Allow manual triggers
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install clasp
+      run: npm install -g @google/clasp
+      
+    - name: Authenticate with Google
+      run: |
+        echo "${{ secrets.CLASP_TOKEN }}" > ~/.clasprc.json
+        clasp login --creds ~/.clasprc.json
+        
+    - name: Deploy to Google Apps Script
+      run: |
+        echo "🚀 Deploying to Google Apps Script..."
+        clasp push
+        
+        # Create version with commit info
+        commit_msg=$(git log --format=%s -n 1 HEAD)
+        clasp version "PRODUCTION: $(git rev-parse --short HEAD) - $commit_msg"
+        
+        echo "✅ Deployment complete!"
+        
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ $? -eq 0 ]; then
+          echo "🎉 Successfully deployed to Google Apps Script!"
+        else
+          echo "❌ Deployment failed!"
+          exit 1
+        fi

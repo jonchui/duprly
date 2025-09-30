@@ -183,7 +183,6 @@ function processAllPlayers() {
 
   console.log("Processing complete!");
 }
-s;
 /**
  * Process a single player
  */
@@ -245,8 +244,15 @@ function processPlayer(sheet, row) {
   // Add to historical tracking
   addToHistorical(firstName, lastName, bestMatch);
 
-  // Add player to club
-  const addResult = addPlayerToClub(bestMatch.id);
+  // Resolve numeric id and add player to club
+  const numericId = resolvePlayerNumericId(bestMatch);
+  if (!numericId) {
+    addNote(sheet, row, 'ERROR: Missing numeric DUPR id for add');
+    updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, 'ERROR: Missing numeric id');
+    return;
+  }
+
+  const addResult = addMembersByIds([numericId]);
 
   if (addResult) {
     addNote(
@@ -258,6 +264,35 @@ function processPlayer(sheet, row) {
   } else {
     addNote(sheet, row, `FOUND: Player found but failed to add to club`);
     updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "FOUND BUT NOT ADDED");
+  }
+}
+
+/**
+ * Resolve numeric player id from a search hit. If missing, fallback to GET /player/{duprId}
+ */
+function resolvePlayerNumericId(hit) {
+  if (!hit) return null;
+  if (hit.id) return Number(hit.id);
+  const duprId = hit.duprId || hit.DUPRID || hit.DuprId;
+  if (!duprId) return null;
+
+  try {
+    const url = `${CONFIG.DUPR_API_URL || 'https://api.dupr.gg'}/player/v1.0/${duprId}`;
+    const r = UrlFetchApp.fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${getDUPRToken()}` },
+      muteHttpExceptions: true,
+    });
+    if (r.getResponseCode() !== 200) {
+      console.error('resolvePlayerNumericId failed:', r.getResponseCode(), r.getContentText());
+      return null;
+    }
+    const data = JSON.parse(r.getContentText());
+    const result = data && data.result;
+    return result && result.id ? Number(result.id) : null;
+  } catch (e) {
+    console.error('resolvePlayerNumericId error:', e);
+    return null;
   }
 }
 
@@ -386,47 +421,75 @@ function searchDUPRPlayer(firstName, lastName) {
 }
 
 /**
- * Add a player to the club (FIXED VERSION)
+ * Add a single existing DUPR user to the club by numeric id (id, not duprId)
  */
 function addPlayerToClub(playerId) {
-  const url = `${CONFIG.DUPR_API_URL || "https://api.dupr.gg"}/club/${
-    CONFIG.CLUB_ID
-  }/members/v1.0/invite`;
+  return addMembersByIds([Number(playerId)]);
+}
 
-  const payload = {
-    playerIds: [playerId],
-  };
+/**
+ * Add multiple existing DUPR users to the club by numeric ids
+ */
+function addMembersByIds(userIds) {
+  const url = `${CONFIG.DUPR_API_URL || "https://api.dupr.gg"}/club/${CONFIG.CLUB_ID}/members/v1.0/add`;
+  const payload = { userIds: userIds.map(Number) };
 
   try {
     const response = UrlFetchApp.fetch(url, {
-      method: "POST",
+      method: "PUT",
       headers: {
         Authorization: `Bearer ${getDUPRToken()}`,
         "Content-Type": "application/json",
       },
       payload: JSON.stringify(payload),
-      muteHttpExceptions: true, // This will prevent exceptions and let us examine the full response
+      muteHttpExceptions: true,
     });
 
     const responseCode = response.getResponseCode();
     const responseText = response.getContentText();
+    console.log(`addMembersByIds code: ${responseCode}`);
+    console.log(`addMembersByIds body: ${responseText}`);
 
-    console.log(`Club addition response code: ${responseCode}`);
-    console.log(`Club addition response: ${responseText}`);
-
-    if (responseCode === 200) {
-      console.log(`Successfully added player ${playerId} to club`);
-      return true;
-    } else {
-      console.error(
-        "Failed to add player to club:",
-        responseCode,
-        responseText
-      );
-      return false;
-    }
+    if (responseCode === 200) return true;
+    // Treat already-invited as success (idempotent)
+    if ((responseText || "").toLowerCase().includes("already invited")) return true;
+    console.error("addMembersByIds failed:", responseCode, responseText);
+    return false;
   } catch (error) {
-    console.error("Error adding player to club:", error);
+    console.error("Error addMembersByIds:", error);
+    return false;
+  }
+}
+
+/**
+ * Bulk add by name/email
+ * addMembers: [ { fullName: string, email: string } ]
+ */
+function addMembersByEmails(addMembers) {
+  const url = `${CONFIG.DUPR_API_URL || "https://api.dupr.gg"}/club/${CONFIG.CLUB_ID}/members/v1.0/multiple/add`;
+  const payload = { addMembers };
+
+  try {
+    const response = UrlFetchApp.fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${getDUPRToken()}`,
+        "Content-Type": "application/json",
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    console.log(`addMembersByEmails code: ${responseCode}`);
+    console.log(`addMembersByEmails body: ${responseText}`);
+
+    if (responseCode === 200) return true;
+    console.error("addMembersByEmails failed:", responseCode, responseText);
+    return false;
+  } catch (error) {
+    console.error("Error addMembersByEmails:", error);
     return false;
   }
 }
