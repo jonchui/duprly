@@ -34,7 +34,7 @@ Update the `.env` file with your actual DUPR credentials:
 ```env
 DUPR_USERNAME=your_email@example.com
 DUPR_PASSWORD=your_password_here
-DUPR_CLUB_ID=5996780750
+DUPR_CLUB_ID=YOUR_CLUB_ID_HERE
 ```
 
 ### 2. Google Apps Script Setup
@@ -48,7 +48,7 @@ DUPR_CLUB_ID=5996780750
 const CONFIG = {
   DUPR_USERNAME: 'your_email@example.com',
   DUPR_PASSWORD: 'your_password_here',
-  CLUB_ID: '5996780750', // Your club ID
+  CLUB_ID: 'YOUR_CLUB_ID_HERE', // Your club ID
   // ... rest of config
 };
 ```
@@ -160,7 +160,7 @@ COLUMNS: {
 const CONFIG = {
   DUPR_USERNAME: 'your_email@example.com',
   DUPR_PASSWORD: 'your_password_here',
-  CLUB_ID: '5996780750',
+  CLUB_ID: 'YOUR_CLUB_ID_HERE',
   DATA_START_ROW: 2, // Row where your data starts (skip header)
   SHEETS: {
     MAIN: 'Sheet1',
@@ -210,10 +210,10 @@ const CONFIG = {
 testAuth()
 
 // Test search with specific player
-searchDUPRPlayer('Sarah', 'Tripp')
+searchDUPRPlayer('John', 'Doe')
 
 // Test club addition with specific player ID
-addPlayerToClub('7307629401')
+addPlayerToClub('1234567890')
 ```
 
 ## 📈 Example Workflow
@@ -239,7 +239,7 @@ addPlayerToClub('7307629401')
 
 ## 🤝 Contributing
 
-This script is designed for Picklr Thornton club management. To adapt for other clubs:
+This script is designed for DUPR club management. To adapt for your club:
 
 1. Update `CLUB_ID` in CONFIG
 2. Modify column mappings if needed

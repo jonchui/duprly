@@ -1,6 +1,6 @@
 /**
  * DUPR Club Manager - Google Apps Script (Fixed Version)
- * Automatically searches DUPR players and adds them to Picklr Thornton club
+ * Automatically searches DUPR players and adds them to your DUPR club
  * 
  * Features:
  * - Correct column mapping for actual sheet structure
@@ -17,7 +17,7 @@ const CONFIG = {
   DUPR_PASSWORD: 'YOUR_DUPR_PASSWORD_HERE', // Replace with your DUPR password
   
   // Your club information
-  CLUB_ID: '5996780750', // Picklr Thornton club ID
+  CLUB_ID: 'YOUR_CLUB_ID_HERE', // Replace with your DUPR club ID
   
   // Google Sheets configuration
   DATA_START_ROW: 2, // Row where your data starts (skip header)
@@ -499,7 +499,7 @@ function testAuth() {
  * Test function to search for a single player
  */
 function testSearch() {
-  const results = searchDUPRPlayer('Sarah', 'Tripp');
+  const results = searchDUPRPlayer('John', 'Doe');
   console.log('Search results:', JSON.stringify(results, null, 2));
 }
 
@@ -507,7 +507,7 @@ function testSearch() {
  * Test function to add a player to club
  */
 function testAddToClub() {
-  const playerId = '7307629401'; // Sarah Tripp's ID
+  const playerId = '1234567890'; // Example player ID
   const result = addPlayerToClub(playerId);
   console.log('Add to club result:', result);
 }

@@ -39,7 +39,7 @@ Check it out!
    ```bash
    DUPR_USERNAME=your_email@example.com
    DUPR_PASSWORD=your_password_here
-   DUPR_CLUB_ID=5996780750
+   DUPR_CLUB_ID=YOUR_CLUB_ID_HERE
    ```
 
 3. **Follow the complete setup guide:** See `README_DUPR_CLUB_MANAGER.md` for detailed instructions
