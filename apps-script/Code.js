@@ -850,3 +850,4 @@ function quickTest() {
 
   console.log("Quick test complete!");
 }
+// Test comment for pre-commit hook
