@@ -9,6 +9,7 @@
  * - Notes column with timestamped entries
  * - Fixed club addition API with proper error logging
  * - Test functions for first/last entry
+ * - GitFlow deployment system integration
  */
 
 // ===== CONFIGURATION =====
