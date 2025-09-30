@@ -1,7 +1,7 @@
 /**
  * DUPR Club Manager - Google Apps Script
  * Automatically searches DUPR players and adds them to your DUPR club
- * 
+ *
  * Setup Instructions:
  * 1. Open Google Sheets with your player data
  * 2. Go to Extensions > Apps Script
@@ -13,27 +13,27 @@
 // ===== CONFIGURATION =====
 const CONFIG = {
   // Your DUPR API credentials (get from DUPR dashboard)
-  DUPR_API_URL: 'https://api.dupr.gg',
-  DUPR_API_VERSION: 'v1.0',
-  
+  DUPR_API_URL: "https://api.dupr.gg",
+  DUPR_API_VERSION: "v1.0",
+
   // Your club information
-  CLUB_ID: 'YOUR_CLUB_ID_HERE', // Replace with your DUPR club ID
-  
+  CLUB_ID: "YOUR_CLUB_ID_HERE", // Replace with your DUPR club ID
+
   // Google Sheets configuration
-  SHEET_NAME: 'Sheet1', // Change to your sheet name
+  SHEET_NAME: "Sheet1", // Change to your sheet name
   DATA_START_ROW: 2, // Row where your data starts (skip header)
-  
+
   // Column mappings (adjust based on your sheet structure)
   COLUMNS: {
-    FIRST_NAME: 'A',
-    LAST_NAME: 'B', 
-    EMAIL: 'C',
-    PHONE: 'D',
-    DUPR_ID: 'E',        // New column for DUPR ID
-    DUPR_RATING: 'F',    // New column for DUPR rating
-    STATUS: 'G',         // New column for status
-    TIMESTAMP: 'H'       // New column for when data was fetched
-  }
+    FIRST_NAME: "A",
+    LAST_NAME: "B",
+    EMAIL: "C",
+    PHONE: "D",
+    DUPR_ID: "E", // New column for DUPR ID
+    DUPR_RATING: "F", // New column for DUPR rating
+    STATUS: "G", // New column for status
+    TIMESTAMP: "H", // New column for when data was fetched
+  },
 };
 
 // ===== MAIN FUNCTIONS =====
@@ -42,14 +42,16 @@ const CONFIG = {
  * Setup function - run this first to configure authentication
  */
 function setup() {
-  console.log('DUPR Club Manager Setup');
-  console.log('Please configure your DUPR API credentials in the CONFIG section');
-  console.log('You can get your API token from: https://dashboard.dupr.com/');
-  
+  console.log("DUPR Club Manager Setup");
+  console.log(
+    "Please configure your DUPR API credentials in the CONFIG section"
+  );
+  console.log("You can get your API token from: https://dashboard.dupr.com/");
+
   // Test the sheet connection
   const sheet = SpreadsheetApp.getActiveSheet();
-  console.log('Connected to sheet:', sheet.getName());
-  
+  console.log("Connected to sheet:", sheet.getName());
+
   // Add headers if they don't exist
   setupHeaders(sheet);
 }
@@ -60,14 +62,14 @@ function setup() {
 function processAllPlayers() {
   const sheet = SpreadsheetApp.getActiveSheet();
   const lastRow = sheet.getLastRow();
-  
+
   if (lastRow < CONFIG.DATA_START_ROW) {
-    console.log('No data found in sheet');
+    console.log("No data found in sheet");
     return;
   }
-  
+
   console.log(`Processing ${lastRow - CONFIG.DATA_START_ROW + 1} players...`);
-  
+
   for (let row = CONFIG.DATA_START_ROW; row <= lastRow; row++) {
     try {
       processPlayer(sheet, row);
@@ -75,11 +77,11 @@ function processAllPlayers() {
       Utilities.sleep(1000);
     } catch (error) {
       console.error(`Error processing row ${row}:`, error);
-      updateCell(sheet, row, CONFIG.COLUMNS.STATUS, 'ERROR: ' + error.message);
+      updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "ERROR: " + error.message);
     }
   }
-  
-  console.log('Processing complete!');
+
+  console.log("Processing complete!");
 }
 
 /**
@@ -90,40 +92,45 @@ function processPlayer(sheet, row) {
   const lastName = getCellValue(sheet, row, CONFIG.COLUMNS.LAST_NAME);
   const email = getCellValue(sheet, row, CONFIG.COLUMNS.EMAIL);
   const phone = getCellValue(sheet, row, CONFIG.COLUMNS.PHONE);
-  
+
   if (!firstName || !lastName) {
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, 'SKIP: Missing name');
+    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "SKIP: Missing name");
     return;
   }
-  
+
   console.log(`Processing: ${firstName} ${lastName}`);
-  
+
   // Search for player in DUPR
   const searchResults = searchDUPRPlayer(firstName, lastName);
-  
+
   if (!searchResults || searchResults.length === 0) {
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, 'NOT FOUND');
+    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "NOT FOUND");
     return;
   }
-  
+
   // Find best match by email or phone
   const bestMatch = findBestMatch(searchResults, email, phone);
-  
+
   if (!bestMatch) {
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, 'NO MATCH: Email/phone mismatch');
+    updateCell(
+      sheet,
+      row,
+      CONFIG.COLUMNS.STATUS,
+      "NO MATCH: Email/phone mismatch"
+    );
     return;
   }
-  
+
   // Update sheet with DUPR data
   updatePlayerData(sheet, row, bestMatch);
-  
+
   // Add player to club
   const addResult = addPlayerToClub(bestMatch.id);
-  
+
   if (addResult) {
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, 'ADDED TO CLUB');
+    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "ADDED TO CLUB");
   } else {
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, 'FOUND BUT NOT ADDED');
+    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "FOUND BUT NOT ADDED");
   }
 }
 
@@ -135,42 +142,46 @@ function processPlayer(sheet, row) {
 function searchDUPRPlayer(firstName, lastName) {
   const query = `${firstName} ${lastName}`;
   const url = `${CONFIG.DUPR_API_URL}/player/${CONFIG.DUPR_API_VERSION}/search`;
-  
+
   const payload = {
     filter: {
       radiusInMeters: 16093400000, // ~10,000 miles
       lat: 39.977763,
-      lng: -105.1319296
+      lng: -105.1319296,
     },
     includeUnclaimedPlayers: true,
     address: {
       latitude: 39.977763,
-      longitude: -105.1319296
+      longitude: -105.1319296,
     },
     offset: 0,
     limit: 25,
-    query: query
+    query: query,
   };
-  
+
   try {
     const response = UrlFetchApp.fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${getDUPRToken()}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${getDUPRToken()}`,
+        "Content-Type": "application/json",
       },
-      payload: JSON.stringify(payload)
+      payload: JSON.stringify(payload),
     });
-    
+
     if (response.getResponseCode() === 200) {
       const data = JSON.parse(response.getContentText());
       return data.result?.hits || [];
     } else {
-      console.error('DUPR search failed:', response.getResponseCode(), response.getContentText());
+      console.error(
+        "DUPR search failed:",
+        response.getResponseCode(),
+        response.getContentText()
+      );
       return null;
     }
   } catch (error) {
-    console.error('Error searching DUPR:', error);
+    console.error("Error searching DUPR:", error);
     return null;
   }
 }
@@ -180,30 +191,34 @@ function searchDUPRPlayer(firstName, lastName) {
  */
 function addPlayerToClub(playerId) {
   const url = `${CONFIG.DUPR_API_URL}/club/${CONFIG.CLUB_ID}/members/${CONFIG.DUPR_API_VERSION}/invite`;
-  
+
   const payload = {
-    playerIds: [playerId]
+    playerIds: [playerId],
   };
-  
+
   try {
     const response = UrlFetchApp.fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${getDUPRToken()}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${getDUPRToken()}`,
+        "Content-Type": "application/json",
       },
-      payload: JSON.stringify(payload)
+      payload: JSON.stringify(payload),
     });
-    
+
     if (response.getResponseCode() === 200) {
       console.log(`Successfully added player ${playerId} to club`);
       return true;
     } else {
-      console.error('Failed to add player to club:', response.getResponseCode(), response.getContentText());
+      console.error(
+        "Failed to add player to club:",
+        response.getResponseCode(),
+        response.getContentText()
+      );
       return false;
     }
   } catch (error) {
-    console.error('Error adding player to club:', error);
+    console.error("Error adding player to club:", error);
     return false;
   }
 }
@@ -217,9 +232,10 @@ function addPlayerToClub(playerId) {
 function getDUPRToken() {
   // TODO: Implement token management
   // For now, you'll need to manually set your token
-  const token = PropertiesService.getScriptProperties().getProperty('DUPR_TOKEN');
+  const token =
+    PropertiesService.getScriptProperties().getProperty("DUPR_TOKEN");
   if (!token) {
-    throw new Error('DUPR token not configured. Please run setup() first.');
+    throw new Error("DUPR token not configured. Please run setup() first.");
   }
   return token;
 }
@@ -228,9 +244,9 @@ function getDUPRToken() {
  * Set DUPR token (run this once with your token)
  */
 function setDUPRToken() {
-  const token = 'YOUR_DUPR_TOKEN_HERE'; // Replace with your actual token
-  PropertiesService.getScriptProperties().setProperty('DUPR_TOKEN', token);
-  console.log('DUPR token set successfully');
+  const token = "YOUR_DUPR_TOKEN_HERE"; // Replace with your actual token
+  PropertiesService.getScriptProperties().setProperty("DUPR_TOKEN", token);
+  console.log("DUPR token set successfully");
 }
 
 /**
@@ -239,20 +255,22 @@ function setDUPRToken() {
 function findBestMatch(searchResults, email, phone) {
   // First, try to match by email
   if (email) {
-    const emailMatch = searchResults.find(player => 
-      player.email && player.email.toLowerCase() === email.toLowerCase()
+    const emailMatch = searchResults.find(
+      (player) =>
+        player.email && player.email.toLowerCase() === email.toLowerCase()
     );
     if (emailMatch) return emailMatch;
   }
-  
+
   // Then try to match by phone
   if (phone) {
-    const phoneMatch = searchResults.find(player => 
-      player.phone && normalizePhone(player.phone) === normalizePhone(phone)
+    const phoneMatch = searchResults.find(
+      (player) =>
+        player.phone && normalizePhone(player.phone) === normalizePhone(phone)
     );
     if (phoneMatch) return phoneMatch;
   }
-  
+
   // If no exact match, return the first result (closest match)
   return searchResults[0];
 }
@@ -261,7 +279,7 @@ function findBestMatch(searchResults, email, phone) {
  * Normalize phone number for comparison
  */
 function normalizePhone(phone) {
-  return phone.replace(/\D/g, '');
+  return phone.replace(/\D/g, "");
 }
 
 /**
@@ -270,8 +288,8 @@ function normalizePhone(phone) {
 function updatePlayerData(sheet, row, playerData) {
   const duprId = playerData.duprId || playerData.id;
   const ratings = playerData.ratings || {};
-  const doublesRating = ratings.doubles || 'NR';
-  
+  const doublesRating = ratings.doubles || "NR";
+
   updateCell(sheet, row, CONFIG.COLUMNS.DUPR_ID, duprId);
   updateCell(sheet, row, CONFIG.COLUMNS.DUPR_RATING, doublesRating);
   updateCell(sheet, row, CONFIG.COLUMNS.TIMESTAMP, new Date());
@@ -282,10 +300,16 @@ function updatePlayerData(sheet, row, playerData) {
  */
 function setupHeaders(sheet) {
   const headers = [
-    'First Name', 'Last Name', 'Email', 'Phone', 
-    'DUPR ID', 'DUPR Rating', 'Status', 'Timestamp'
+    "First Name",
+    "Last Name",
+    "Email",
+    "Phone",
+    "DUPR ID",
+    "DUPR Rating",
+    "Status",
+    "Timestamp",
   ];
-  
+
   const headerRow = 1;
   headers.forEach((header, index) => {
     const column = String.fromCharCode(65 + index); // A, B, C, etc.
@@ -303,7 +327,7 @@ function getCellValue(sheet, row, column) {
   try {
     return sheet.getRange(`${column}${row}`).getValue();
   } catch (error) {
-    return '';
+    return "";
   }
 }
 
@@ -324,15 +348,15 @@ function updateCell(sheet, row, column, value) {
  * Test function to search for a single player
  */
 function testSearch() {
-  const results = searchDUPRPlayer('John', 'Doe');
-  console.log('Search results:', JSON.stringify(results, null, 2));
+  const results = searchDUPRPlayer("John", "Doe");
+  console.log("Search results:", JSON.stringify(results, null, 2));
 }
 
 /**
  * Test function to add a player to club
  */
 function testAddToClub() {
-  const playerId = '1234567890'; // Example player ID
+  const playerId = "1234567890"; // Example player ID
   const result = addPlayerToClub(playerId);
-  console.log('Add to club result:', result);
+  console.log("Add to club result:", result);
 }
