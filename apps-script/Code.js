@@ -16,7 +16,7 @@
 // ===== CONFIGURATION =====
 const CONFIG = {
   // Your club information (public)
-  CLUB_ID: "YOUR_CLUB_ID_HERE", // Replace with your DUPR club ID
+  CLUB_ID: "5996780750", // Replace with your DUPR club ID
 
   // Google Sheets configuration
   DATA_START_ROW: 2, // Row where your data starts (skip header)
