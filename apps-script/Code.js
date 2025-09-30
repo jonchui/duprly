@@ -25,20 +25,49 @@ const CONFIG = {
   // Google Sheets configuration
   DATA_START_ROW: 2, // Row where your data starts (skip header)
 
-  // Column mappings (actual sheet structure)
+  // Column mappings for different sheets
   COLUMNS: {
-    ID_CODE: "A", // ID/Code (94VNXK, YGRGQP, etc.)
-    FULL_NAME: "B", // Full Name (Abner, Adam Johnson, etc.)
-    DOUBLES_DUPR: "C", // Doubles DUPR (existing)
-    EMAIL: "D", // Email
-    PHONE: "E", // Phone
-    ADDRESS: "F", // Address
-    MEMBERSHIP_PLAN: "G", // Membership Plan
-    NOTES: "H", // Notes column (new)
-    DUPR_ID: "I", // DUPR ID (new)
-    DUPR_RATING: "J", // DUPR Rating (new)
-    STATUS: "K", // Status (new)
-    TIMESTAMP: "L", // Timestamp (new)
+    // Main sheet (where we process players)
+    MAIN: {
+      ID_CODE: "A", // ID/Code (94VNXK, YGRGQP, etc.)
+      FULL_NAME: "B", // Full Name (Abner, Adam Johnson, etc.)
+      DOUBLES_DUPR: "C", // Doubles DUPR (existing)
+      EMAIL: "D", // Email
+      PHONE: "E", // Phone
+      ADDRESS: "F", // Address
+      MEMBERSHIP_PLAN: "G", // Membership Plan
+      NOTES: "H", // Notes column (new)
+      DUPR_ID: "I", // DUPR ID (new)
+      DUPR_RATING: "J", // DUPR Rating (new)
+      STATUS: "K", // Status (new)
+      TIMESTAMP: "L", // Timestamp (new)
+    },
+    
+    // DUPR sheet (existing sheet with current ratings)
+    DUPR: {
+      DUPR_ID: "A", // DUPR_ID
+      FULL_NAME: "B", // Full Name
+      EMAIL: "C", // Email
+      PHONE: "D", // Phone
+      DOUBLES_DUPR: "E", // Doubles DUPR
+      DOUBLES_RELIABILITY: "F", // Double Reliability
+      SINGLES_DUPR: "G", // Singles DUPR
+      SINGLES_RELIABILITY: "H", // Singles Reliability
+    },
+    
+    // DUPR_History sheet (historical tracking)
+    HISTORY: {
+      DUPR_ID: "A", // DUPR_ID
+      FULL_NAME: "B", // Full Name
+      EMAIL: "C", // Email
+      PHONE: "D", // Phone
+      DOUBLES_DUPR: "E", // Doubles DUPR
+      DOUBLES_RELIABILITY: "F", // Double Reliability
+      SINGLES_DUPR: "G", // Singles DUPR
+      SINGLES_RELIABILITY: "H", // Singles Reliability
+      TIMESTAMP: "I", // Timestamp
+      NOTES: "J", // Notes
+    }
   },
 
   // Sheet names
@@ -107,7 +136,7 @@ function processAllPlayers() {
     } catch (error) {
       console.error(`Error processing row ${row}:`, error);
       addNote(sheet, row, `ERROR: ${error.message}`);
-      updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "ERROR: " + error.message);
+      updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "ERROR: " + error.message);
     }
   }
 
@@ -118,14 +147,14 @@ s;
  * Process a single player
  */
 function processPlayer(sheet, row) {
-  const idCode = getCellValue(sheet, row, CONFIG.COLUMNS.ID_CODE);
-  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.FULL_NAME);
-  const email = getCellValue(sheet, row, CONFIG.COLUMNS.EMAIL);
-  const phone = getCellValue(sheet, row, CONFIG.COLUMNS.PHONE);
+  const idCode = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.ID_CODE);
+  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
+  const email = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.EMAIL);
+  const phone = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.PHONE);
 
   if (!fullName) {
     addNote(sheet, row, "SKIP: Missing name");
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "SKIP: Missing name");
+    updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "SKIP: Missing name");
     return;
   }
 
@@ -136,7 +165,7 @@ function processPlayer(sheet, row) {
 
   if (!firstName) {
     addNote(sheet, row, "SKIP: Invalid name format");
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "SKIP: Invalid name format");
+    updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "SKIP: Invalid name format");
     return;
   }
 
@@ -148,7 +177,7 @@ function processPlayer(sheet, row) {
 
   if (!searchResults || searchResults.length === 0) {
     addNote(sheet, row, "NOT FOUND: No players found in DUPR search");
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "NOT FOUND");
+    updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "NOT FOUND");
     return;
   }
 
@@ -160,7 +189,7 @@ function processPlayer(sheet, row) {
     updateCell(
       sheet,
       row,
-      CONFIG.COLUMNS.STATUS,
+      CONFIG.COLUMNS.MAIN.STATUS,
       "NO MATCH: Email/phone mismatch"
     );
     return;
@@ -184,10 +213,10 @@ function processPlayer(sheet, row) {
       row,
       `SUCCESS: Added ${bestMatch.fullName} (${bestMatch.duprId}) to club`
     );
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "ADDED TO CLUB");
+    updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "ADDED TO CLUB");
   } else {
     addNote(sheet, row, `FOUND: Player found but failed to add to club`);
-    updateCell(sheet, row, CONFIG.COLUMNS.STATUS, "FOUND BUT NOT ADDED");
+    updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "FOUND BUT NOT ADDED");
   }
 }
 
@@ -398,9 +427,9 @@ function updatePlayerData(sheet, row, playerData) {
   const ratings = playerData.ratings || {};
   const doublesRating = ratings.doubles || "NR";
 
-  updateCell(sheet, row, CONFIG.COLUMNS.DUPR_ID, duprId);
-  updateCell(sheet, row, CONFIG.COLUMNS.DUPR_RATING, doublesRating);
-  updateCell(sheet, row, CONFIG.COLUMNS.TIMESTAMP, new Date());
+  updateCell(sheet, row, CONFIG.COLUMNS.MAIN.DUPR_ID, duprId);
+  updateCell(sheet, row, CONFIG.COLUMNS.MAIN.DUPR_RATING, doublesRating);
+  updateCell(sheet, row, CONFIG.COLUMNS.MAIN.TIMESTAMP, new Date());
 }
 
 /**
@@ -420,10 +449,10 @@ function addNote(sheet, row, message) {
   );
   const note = `[${timestamp}] - ${message}`;
 
-  const currentNotes = getCellValue(sheet, row, CONFIG.COLUMNS.NOTES);
+  const currentNotes = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.NOTES);
   const newNotes = currentNotes ? `${currentNotes}\n${note}` : note;
 
-  updateCell(sheet, row, CONFIG.COLUMNS.NOTES, newNotes);
+  updateCell(sheet, row, CONFIG.COLUMNS.MAIN.NOTES, newNotes);
 }
 
 /**
@@ -465,14 +494,14 @@ function updateDUPRSheet(firstName, lastName, playerData) {
   }
 
   const rowData = [
-    duprId, // DUPR_ID
-    playerData.fullName || `${firstName} ${lastName}`, // Full Name
-    playerData.email || "", // Email
-    playerData.phone || "", // Phone
-    doublesRating, // Doubles DUPR
-    doublesReliability, // Double Reliability
-    singlesRating, // Singles DUPR
-    singlesReliability, // Singles Reliability
+    duprId, // A - DUPR_ID
+    playerData.fullName || `${firstName} ${lastName}`, // B - Full Name
+    playerData.email || "", // C - Email
+    playerData.phone || "", // D - Phone
+    doublesRating, // E - Doubles DUPR
+    doublesReliability, // F - Double Reliability
+    singlesRating, // G - Singles DUPR
+    singlesReliability, // H - Singles Reliability
   ];
 
   if (existingRow) {
@@ -708,8 +737,8 @@ function testFirstEntry() {
 
   console.log(`Testing FIRST entry (row ${row})...`);
 
-  const idCode = getCellValue(sheet, row, CONFIG.COLUMNS.ID_CODE);
-  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.FULL_NAME);
+  const idCode = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.ID_CODE);
+  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
 
   if (!fullName) {
     console.log("❌ First entry has no name data");
@@ -729,8 +758,8 @@ function testLastEntry() {
 
   console.log(`Testing LAST entry (row ${lastRow})...`);
 
-  const idCode = getCellValue(sheet, lastRow, CONFIG.COLUMNS.ID_CODE);
-  const fullName = getCellValue(sheet, lastRow, CONFIG.COLUMNS.FULL_NAME);
+  const idCode = getCellValue(sheet, lastRow, CONFIG.COLUMNS.MAIN.ID_CODE);
+  const fullName = getCellValue(sheet, lastRow, CONFIG.COLUMNS.MAIN.FULL_NAME);
 
   if (!fullName) {
     console.log("❌ Last entry has no name data");
