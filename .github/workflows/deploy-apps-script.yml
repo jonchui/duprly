@@ -1,0 +1,37 @@
+name: Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Setup clasp credentials
+        env:
+          CLASP_TOKEN: ${{ secrets.CLASP_TOKEN }}
+        run: |
+          echo "$CLASP_TOKEN" > ~/.clasprc.json
+
+      - name: Push to Google Apps Script
+        run: |
+          clasp push --force
+
+      - name: Run tests (optional)
+        run: |
+          # Add any testing commands here
+          echo "Running tests..."
