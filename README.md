@@ -1,8 +1,24 @@
-# DUPR Data Downloader
+# DUPR Data Tools
 
-This DUPR data downloader pulls player and match history data for all players belonging
-to a club. This program pulls data from all the players that our players have played against
-even if they are not in the club, so the dataset can get pretty big.
+A comprehensive suite of tools for managing DUPR (Dynamic Universal Pickleball Rating) data, including both Python-based data analysis and Google Apps Script automation for club management.
+
+## 🎯 What's Included
+
+### 1. **DUPR Club Manager** (Google Apps Script)
+Automatically search DUPR players, verify identity, track historical ratings, and add members to your club.
+
+**📁 Files:**
+- `dupr_club_manager_fixed.gs` - Main Google Apps Script
+- `README_DUPR_CLUB_MANAGER.md` - Complete setup guide
+
+**🚀 Quick Start:**
+1. Copy `dupr_club_manager_fixed.gs` to Google Apps Script
+2. Update CONFIG with your DUPR credentials
+3. Run `setup()` to initialize
+4. Use `processAllPlayers()` to manage your club
+
+### 2. **DUPR Data Downloader** (Python)
+Pulls player and match history data for all players belonging to a club. This program pulls data from all the players that our players have played against even if they are not in the club, so the dataset can get pretty big.
 
 The data is stored in a local sqlite3 database via SQLAlchemy (I am working on a Mac).
 This is my yet another attempt to master SQLAlchemy ORM.
@@ -12,23 +28,39 @@ Check it out!
 
 ## Setup Instructions
 
-### 1. Install Dependencies
+### For Google Apps Script (DUPR Club Manager)
 
-```bash
-pip3 install -r requirements.txt
-```
+1. **Copy Environment Template:**
+   ```bash
+   cp env.example .env
+   ```
 
-### 2. Configure Environment Variables
+2. **Update `.env` with your DUPR credentials:**
+   ```bash
+   DUPR_USERNAME=your_email@example.com
+   DUPR_PASSWORD=your_password_here
+   DUPR_CLUB_ID=5996780750
+   ```
 
-Create a `.env` file in the project root with your DUPR credentials:
+3. **Follow the complete setup guide:** See `README_DUPR_CLUB_MANAGER.md` for detailed instructions
 
-```bash
-DUPR_USERNAME=your_email@example.com
-DUPR_PASSWORD=your_password
-DUPR_CLUB_ID=your_club_id
-```
+### For Python Tools (DUPR Data Downloader)
 
-**Note:** You'll need to find your DUPR club ID. This can usually be found in the URL when viewing your club page on the DUPR website.
+1. **Install Dependencies:**
+   ```bash
+   pip3 install -r requirements.txt
+   ```
+
+2. **Configure Environment Variables:**
+   Create a `.env` file in the project root with your DUPR credentials:
+
+   ```bash
+   DUPR_USERNAME=your_email@example.com
+   DUPR_PASSWORD=your_password
+   DUPR_CLUB_ID=your_club_id
+   ```
+
+   **Note:** You'll need to find your DUPR club ID. This can usually be found in the URL when viewing your club page on the DUPR website.
 
 ### 3. Run the Application
 
