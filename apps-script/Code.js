@@ -21,6 +21,12 @@ const CONFIG = {
   // Google Sheets configuration
   DATA_START_ROW: 2, // Row where your data starts (skip header)
 
+  // PlayByPoint integration (public data; auth stored in script properties)
+  PBP: {
+    BASE_URL: "https://app.playbypoint.com",
+    FACILITY_ID: "983", // Replace with your facility id
+  },
+
   // Column mappings for different sheets
   COLUMNS: {
     // Main sheet (where we process players) - ACTUAL STRUCTURE
@@ -96,11 +102,17 @@ function setupCredentials() {
   const ui = SpreadsheetApp.getUi();
   const username = ui.prompt("Enter DUPR Username (Email):").getResponseText();
   const password = ui.prompt("Enter DUPR Password:").getResponseText();
+  const pbpCsrf = ui.prompt("Enter PlayByPoint X-CSRF-Token (optional):").getResponseText();
+  const pbpCookie = ui
+    .prompt("Enter PlayByPoint Cookie header (optional):")
+    .getResponseText();
   
   if (username && password) {
     PropertiesService.getScriptProperties().setProperties({
       DUPR_USERNAME: username,
       DUPR_PASSWORD: password,
+      PBP_CSRF: pbpCsrf || "",
+      PBP_COOKIE: pbpCookie || "",
     });
     ui.alert("✅ Credentials stored securely!");
     console.log("Credentials stored successfully");
@@ -365,6 +377,93 @@ function authenticateDUPR() {
   }
 
   return null;
+}
+
+// ===== PlayByPoint API FUNCTIONS =====
+
+/**
+ * Search PlayByPoint users by name and return current DUPR ratings if present
+ * Stores sensitive headers (CSRF, Cookie) in Script Properties via setupCredentials()
+ */
+function searchPlayByPointUsers(query) {
+  const props = PropertiesService.getScriptProperties();
+  const csrf = props.getProperty("PBP_CSRF");
+  const cookie = props.getProperty("PBP_COOKIE");
+  if (!csrf || !cookie) {
+    console.log("PlayByPoint credentials missing. Run setupCredentials() to set PBP_CSRF and PBP_COOKIE.");
+    return [];
+  }
+
+  const base = CONFIG.PBP.BASE_URL;
+  const facilityId = CONFIG.PBP.FACILITY_ID;
+  const url = `${base}/api/users.json?q=${encodeURIComponent(query)}&court_id=&include_child=1&facility_id=${encodeURIComponent(facilityId)}&show_affiliation=&rating_provider=dupr`;
+
+  const headers = {
+    "X-CSRF-Token": csrf,
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "User-Agent": "AppsScript",
+    Cookie: cookie,
+  };
+
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method: "GET",
+      headers,
+      muteHttpExceptions: true,
+    });
+    if (resp.getResponseCode() !== 200) {
+      console.error("PBP search failed:", resp.getResponseCode(), resp.getContentText());
+      return [];
+    }
+    const data = JSON.parse(resp.getContentText());
+    return data.users || [];
+  } catch (e) {
+    console.error("Error calling PBP:", e);
+    return [];
+  }
+}
+
+/**
+ * Convenience: look up current row's full name in PBP and log ratings
+ */
+function pbpLookupActiveRow() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEETS.MAIN) || SpreadsheetApp.getActiveSheet();
+  const row = sheet.getActiveRange().getRow();
+  if (row < CONFIG.DATA_START_ROW) {
+    console.log("Active row not in data region");
+    return;
+  }
+  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
+  if (!fullName) {
+    console.log("No name in active row");
+    return;
+  }
+  const results = searchPlayByPointUsers(fullName);
+  console.log("PBP results:", JSON.stringify(results.slice(0, 3), null, 2));
+  if (results.length) {
+    const u = results[0];
+    const doubles = u.current_rating?.double ?? "";
+    const singles = u.current_rating?.single ?? "";
+    if (doubles || singles) {
+      updateCell(sheet, row, CONFIG.COLUMNS.MAIN.DUPR_RATING, doubles || singles);
+      addNote(sheet, row, `PBP: singles=${singles}, doubles=${doubles}`);
+      updateCell(sheet, row, CONFIG.COLUMNS.MAIN.STATUS, "PBP LOOKUP");
+    }
+  }
+}
+
+/**
+ * Quick manual search in PlayByPoint by name; logs top results
+ */
+function pbpSearchName(name) {
+  if (!name) {
+    console.log("Provide a name: pbpSearchName('First Last')");
+    return;
+  }
+  const results = searchPlayByPointUsers(name);
+  console.log("PBP results:", JSON.stringify(results.slice(0, 10), null, 2));
 }
 
 /**
