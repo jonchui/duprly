@@ -27,6 +27,32 @@ jobs:
         run: |
           echo "$CLASP_TOKEN" > ~/.clasprc.json
 
+      - name: Setup DUPR credentials in Apps Script
+        env:
+          DUPR_USERNAME: ${{ secrets.DUPR_USERNAME }}
+          DUPR_PASSWORD: ${{ secrets.DUPR_PASSWORD }}
+        run: |
+          # Create a temporary script to set credentials
+          cat > setup_credentials.js << 'EOF'
+          const { execSync } = require('child_process');
+          
+          // Set credentials in Google Apps Script
+          const script = `
+          function setupCredentialsFromCI() {
+            PropertiesService.getScriptProperties().setProperties({
+              'DUPR_USERNAME': '${process.env.DUPR_USERNAME}',
+              'DUPR_PASSWORD': '${process.env.DUPR_PASSWORD}'
+            });
+            console.log('Credentials set from CI/CD');
+          }
+          `;
+          
+          // Write to a temporary file and push
+          require('fs').writeFileSync('apps-script/SetupCredentials.gs', script);
+          EOF
+          
+          node setup_credentials.js
+
       - name: Push to Google Apps Script
         run: |
           clasp push --force
