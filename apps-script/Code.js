@@ -655,12 +655,10 @@ function createHistoricalSheet() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   // Check if historical sheet already exists
-  try {
-    spreadsheet.getSheetByName(CONFIG.SHEETS.HISTORICAL);
+  const existingSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.HISTORICAL);
+  if (existingSheet) {
     console.log("Historical sheet already exists");
     return;
-  } catch (error) {
-    // Sheet doesn't exist, create it
   }
 
   const historicalSheet = spreadsheet.insertSheet(CONFIG.SHEETS.HISTORICAL);
@@ -686,6 +684,15 @@ function createHistoricalSheet() {
   historicalSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
   console.log("Created historical tracking sheet");
+}
+
+/**
+ * Create historical sheet manually (run this if setup() didn't create it)
+ */
+function createHistoricalSheetManually() {
+  console.log("Creating historical sheet manually...");
+  createHistoricalSheet();
+  console.log("Historical sheet creation complete!");
 }
 
 /**
