@@ -4,7 +4,8 @@
  *
  * Features:
  * - Correct column mapping for actual sheet structure
- * - Historical DUPR tracking with vlookup functionality
+ * - Updates existing "DUPR" sheet with current ratings
+ * - Historical DUPR tracking with vlookup functionality (3rd sheet)
  * - Notes column with timestamped entries
  * - Fixed club addition API with proper error logging
  * - Test functions for first/last entry
@@ -42,7 +43,8 @@ const CONFIG = {
   // Sheet names
   SHEETS: {
     MAIN: "Sheet1", // Main data sheet
-    HISTORICAL: "DUPR_History", // Historical DUPR tracking
+    DUPR: "DUPR", // Existing DUPR sheet with current ratings
+    HISTORICAL: "DUPR_History", // Historical DUPR tracking (3rd sheet)
   },
 };
 
@@ -63,6 +65,9 @@ function setup() {
 
   // Add headers if they don't exist
   setupHeaders(mainSheet);
+
+  // Setup DUPR sheet headers
+  setupDUPRSheetHeaders();
 
   // Create historical sheet
   createHistoricalSheet();
@@ -151,6 +156,9 @@ function processPlayer(sheet, row) {
 
   // Update sheet with DUPR data
   updatePlayerData(sheet, row, bestMatch);
+
+  // Update DUPR sheet with current ratings
+  updateDUPRSheet(firstName, lastName, bestMatch);
 
   // Add to historical tracking
   addToHistorical(firstName, lastName, bestMatch);
@@ -402,6 +410,61 @@ function addNote(sheet, row, message) {
 }
 
 /**
+ * Update or add player data to the existing DUPR sheet
+ */
+function updateDUPRSheet(firstName, lastName, playerData) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let duprSheet;
+
+  try {
+    duprSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.DUPR);
+  } catch (error) {
+    console.error("DUPR sheet not found:", error);
+    return;
+  }
+
+  const duprId = playerData.duprId || playerData.id;
+  const ratings = playerData.ratings || {};
+  const doublesRating = ratings.doubles || "NR";
+  const singlesRating = ratings.singles || "NR";
+  const doublesReliability = ratings.doublesVerified ? "Verified" : "Unverified";
+  const singlesReliability = ratings.singlesVerified ? "Verified" : "Unverified";
+
+  // Check if player already exists in DUPR sheet
+  const lastRow = duprSheet.getLastRow();
+  let existingRow = null;
+  
+  for (let row = 2; row <= lastRow; row++) { // Skip header row
+    const existingDuprId = duprSheet.getRange(row, 1).getValue(); // DUPR_ID column
+    if (existingDuprId == duprId) {
+      existingRow = row;
+      break;
+    }
+  }
+
+  const rowData = [
+    duprId, // DUPR_ID
+    playerData.fullName || `${firstName} ${lastName}`, // Full Name
+    playerData.email || "", // Email
+    playerData.phone || "", // Phone
+    doublesRating, // Doubles DUPR
+    doublesReliability, // Double Reliability
+    singlesRating, // Singles DUPR
+    singlesReliability, // Singles Reliability
+  ];
+
+  if (existingRow) {
+    // Update existing row
+    duprSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+    console.log(`Updated existing player ${firstName} ${lastName} in DUPR sheet`);
+  } else {
+    // Add new row
+    duprSheet.appendRow(rowData);
+    console.log(`Added new player ${firstName} ${lastName} to DUPR sheet`);
+  }
+}
+
+/**
  * Add player to historical tracking sheet
  */
 function addToHistorical(firstName, lastName, playerData) {
@@ -435,6 +498,44 @@ function addToHistorical(firstName, lastName, playerData) {
   ];
 
   historicalSheet.appendRow(newRow);
+}
+
+/**
+ * Setup headers for the existing DUPR sheet
+ */
+function setupDUPRSheetHeaders() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let duprSheet;
+
+  try {
+    duprSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.DUPR);
+  } catch (error) {
+    console.log("DUPR sheet not found, skipping header setup");
+    return;
+  }
+
+  // Check if headers already exist
+  const firstRow = duprSheet.getRange(1, 1, 1, 8).getValues()[0];
+  const hasHeaders = firstRow[0] && firstRow[0].toString().includes("DUPR_ID");
+
+  if (!hasHeaders) {
+    const headers = [
+      "DUPR_ID",
+      "Full Name", 
+      "Email",
+      "Phone",
+      "Doubles DUPR",
+      "Double Reliability",
+      "Singles DUPR",
+      "Singles Reliability"
+    ];
+
+    duprSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    duprSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+    console.log("Added headers to DUPR sheet");
+  } else {
+    console.log("DUPR sheet headers already exist");
+  }
 }
 
 /**
