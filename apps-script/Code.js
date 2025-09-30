@@ -435,15 +435,23 @@ function pbpLookupActiveRow() {
     console.log("Active row not in data region");
     return;
   }
+  const email = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.EMAIL);
   const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
-  if (!fullName) {
-    console.log("No name in active row");
+  const query = email || fullName;
+  if (!query) {
+    console.log("No email or name in active row");
     return;
   }
-  const results = searchPlayByPointUsers(fullName);
+  const results = searchPlayByPointUsers(query);
   console.log("PBP results:", JSON.stringify(results.slice(0, 3), null, 2));
   if (results.length) {
-    const u = results[0];
+    let u = results[0];
+    // Prefer exact email match when searching by email
+    if (email) {
+      const lower = String(email).toLowerCase();
+      const exact = results.find(r => (r.email && String(r.email).toLowerCase() === lower) || (r.user_child_name && String(r.user_child_name).toLowerCase() === lower));
+      if (exact) u = exact;
+    }
     const doubles = u.current_rating?.double ?? "";
     const singles = u.current_rating?.single ?? "";
     if (doubles || singles) {
@@ -458,11 +466,27 @@ function pbpLookupActiveRow() {
  * Quick manual search in PlayByPoint by name; logs top results
  */
 function pbpSearchName(name) {
-  if (!name) {
-    console.log("Provide a name: pbpSearchName('First Last')");
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEETS.MAIN) || SpreadsheetApp.getActiveSheet();
+  const row = sheet.getActiveRange ? sheet.getActiveRange().getRow() : CONFIG.DATA_START_ROW;
+  const email = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.EMAIL);
+  const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
+  const query = email || name || fullName;
+  if (!query) {
+    console.log("Provide an email/name or select a row with data");
     return;
   }
-  const results = searchPlayByPointUsers(name);
+  const results = searchPlayByPointUsers(query);
+  // When searching by email, surface the exact match first if present
+  if (email && results && results.length) {
+    const lower = String(email).toLowerCase();
+    results.sort((a, b) => {
+      const aExact = (a.email && String(a.email).toLowerCase() === lower) || (a.user_child_name && String(a.user_child_name).toLowerCase() === lower);
+      const bExact = (b.email && String(b.email).toLowerCase() === lower) || (b.user_child_name && String(b.user_child_name).toLowerCase() === lower);
+      return (aExact === bExact) ? 0 : (aExact ? -1 : 1);
+    });
+  }
+  console.log("PBP query:", query);
   console.log("PBP results:", JSON.stringify(results.slice(0, 10), null, 2));
 }
 
