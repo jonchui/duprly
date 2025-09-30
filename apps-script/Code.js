@@ -159,7 +159,13 @@ function setup() {
  * Main function to process all players in the sheet
  */
 function processAllPlayers() {
-  const sheet = SpreadsheetApp.getActiveSheet();
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet.getSheetByName(CONFIG.SHEETS.MAIN);
+  if (!sheet) {
+    console.error(`Main sheet "${CONFIG.SHEETS.MAIN}" not found.`);
+    return;
+  }
+
   const lastRow = sheet.getLastRow();
 
   if (lastRow < CONFIG.DATA_START_ROW) {
@@ -167,13 +173,20 @@ function processAllPlayers() {
     return;
   }
 
-  console.log(`Processing ${lastRow - CONFIG.DATA_START_ROW + 1} players...`);
-
+  // Only consider rows that actually have a name in FULL_NAME column
+  const rowsToProcess = [];
   for (let row = CONFIG.DATA_START_ROW; row <= lastRow; row++) {
+    const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
+    if (fullName) rowsToProcess.push(row);
+  }
+
+  console.log(`Processing ${rowsToProcess.length} players...`);
+
+  for (const row of rowsToProcess) {
     try {
       processPlayer(sheet, row);
       // Add a small delay to avoid rate limiting
-      Utilities.sleep(1000);
+      Utilities.sleep(200);
     } catch (error) {
       console.error(`Error processing row ${row}:`, error);
       addNote(sheet, row, `ERROR: ${error.message}`);
@@ -191,6 +204,13 @@ function processPlayer(sheet, row) {
   const fullName = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.FULL_NAME);
   const email = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.EMAIL);
   const phone = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.PHONE);
+  const status = getCellValue(sheet, row, CONFIG.COLUMNS.MAIN.STATUS);
+
+  // Skip if already processed successfully
+  if (status && String(status).toUpperCase() === "ADDED TO CLUB") {
+    addNote(sheet, row, "SKIP: Already added to club");
+    return;
+  }
 
   if (!fullName) {
     addNote(sheet, row, "SKIP: Missing name");
@@ -817,7 +837,12 @@ function updateCell(sheet, row, column, value) {
  * Process a single player by row number (gets sheet automatically)
  */
 function processSinglePlayer(rowNumber) {
-  const sheet = SpreadsheetApp.getActiveSheet();
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet.getSheetByName(CONFIG.SHEETS.MAIN);
+  if (!sheet) {
+    console.error(`Main sheet "${CONFIG.SHEETS.MAIN}" not found.`);
+    return;
+  }
   console.log(`Processing player in row ${rowNumber}...`);
   processPlayer(sheet, rowNumber);
 }
