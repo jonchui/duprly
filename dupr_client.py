@@ -58,7 +58,7 @@ class DuprClient(object):
                 json.dump(data, f)
         except FileNotFoundError:
             logger.debug(f"Cannot save token to {self.env_path}")
-s
+
     def u(self, parts):
         """Helper function to construct URL"""
         url = f"{self.env_url}{parts}"

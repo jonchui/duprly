@@ -754,7 +754,6 @@ function findBestMatch(searchResults, email, phone) {
     );
     if (emailMatch) return emailMatch;
   }
-
   // Then try to match by phone
   if (phone) {
     const phoneMatch = searchResults.find(
