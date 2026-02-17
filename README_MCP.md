@@ -99,6 +99,28 @@ Don't have Python 3.11? Install it: `brew install python@3.11` then use `python3
    python3.11 duprly_mcp.py
    ```
 
+## Run on this Mac or Mac Mini
+
+Same steps on **any Mac** (MacBook, Mac Mini, etc.):
+
+**One-time setup (per machine):**
+```bash
+cd duprly
+./setup_simple.sh                    # installs deps, creates .env from .env.template
+python3.11 scripts/set_secrets.py    # store DUPR + optional MCP_API_KEY in keychain (recommended)
+```
+
+**Run the server:**
+```bash
+cd duprly
+./run.sh                 # stdio mode (for Cursor on this machine)
+./run.sh --sse --port 8000   # HTTP/SSE (for Poke; use http://127.0.0.1:8000/sse)
+```
+
+With **just** (if installed): `just mcp` or `just mcp-sse` or `just set-secrets`.
+
+The `run.sh` script finds Python 3.10+ for you (including `/opt/homebrew/bin/python3.11` on Apple Silicon Mac Mini). No need to remember the Python path.
+
 ## Integration
 
 ### Claude Desktop Integration

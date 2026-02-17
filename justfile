@@ -1,6 +1,19 @@
 set dotenv-load := true
 DB_PATH := "dupr.sqlite"
 
+# MCP server (same on MacBook or Mac Mini)
+mcp:
+	./run.sh
+
+mcp-sse:
+	./run.sh --sse --port 8000
+
+set-secrets:
+	python3.11 scripts/set_secrets.py
+
+setup:
+	./setup_simple.sh
+
 stats:
 	python duprly.py stats
 	

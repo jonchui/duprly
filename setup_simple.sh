@@ -21,9 +21,9 @@ for py in python3.11 python3.12 python3.10; do
     fi
 done
 
-# Try common installation paths
+# Try common installation paths (Homebrew on Mac Mini / Apple Silicon, etc.)
 if [ -z "$PYTHON_CMD" ]; then
-    for path in /usr/local/bin/python3.11 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11; do
+    for path in /opt/homebrew/bin/python3.11 /usr/local/bin/python3.11 /Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11; do
         if [ -f "$path" ]; then
             VERSION=$($path --version 2>&1 | awk '{print $2}')
             PYTHON_CMD="$path"
@@ -50,20 +50,16 @@ echo "📦 Upgrading pip..."
 $PYTHON_CMD -m pip install --upgrade pip --user
 
 echo ""
-echo "📦 Installing MCP SDK..."
-$PYTHON_CMD -m pip install --user git+https://github.com/modelcontextprotocol/python-sdk.git
-
-echo ""
-echo "📦 Installing DUPRLY dependencies..."
+echo "📦 Installing DUPRLY dependencies (MCP, keyring, etc.)..."
 $PYTHON_CMD -m pip install --user -r requirements.txt
 
 echo ""
 echo "📝 Checking .env file..."
 if [ ! -f .env ]; then
-    echo "Creating .env from env.example..."
-    cp env.example .env
-    echo "⚠️  Please edit .env with your DUPR credentials!"
-    echo "   nano .env"
+    echo "Creating .env from .env.template..."
+    cp .env.template .env
+    echo "⚠️  Set your credentials: edit .env or run set_secrets to use keychain:"
+    echo "   $PYTHON_CMD scripts/set_secrets.py"
 else
     echo "✅ .env file exists"
 fi
@@ -77,13 +73,16 @@ echo "✅ Setup complete!"
 echo ""
 echo "Your Python command is: $PYTHON_CMD"
 echo ""
-echo "To start the MCP server:"
-echo "  $PYTHON_CMD duprly_mcp.py"
+echo "To start the MCP server (stdio for Cursor):"
+echo "  ./run.sh"
+echo "  # or: $PYTHON_CMD duprly_mcp.py"
 echo ""
-echo "For Cursor MCP integration, use this command:"
-echo "  $PYTHON_CMD"
+echo "For Poke / HTTP SSE:"
+echo "  ./run.sh --sse --port 8000"
 echo ""
-echo "And this path for args:"
-echo "  $PWD/duprly_mcp.py"
+echo "Store secrets in keychain (optional):"
+echo "  $PYTHON_CMD scripts/set_secrets.py"
+echo ""
+echo "Cursor MCP: command = $PYTHON_CMD, args = $PWD/duprly_mcp.py"
 
 
