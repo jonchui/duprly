@@ -164,18 +164,19 @@ The `run.sh` script finds Python 3.10+ for you (including `/opt/homebrew/bin/pyt
 
 ### Cursor Integration
 
-1. Go to **Cursor Settings** > **MCP**
+**Option A – Project config (recommended)**  
+This repo includes `.cursor/mcp.json`. With the **duprly** folder open as your Cursor workspace, Cursor will start the DUPRLY MCP server automatically when you use it.
 
-2. Add a new MCP server with:
-   - **Name**: `duprly`
-   - **Command**: `python /absolute/path/to/duprly/duprly_mcp.py`
-   - **Environment Variables**: Add your DUPR credentials
+1. Open the **duprly** project in Cursor (File → Open Folder → select the `duprly` folder).
+2. Reload or restart Cursor so it picks up `.cursor/mcp.json`.
+3. In any chat, try: *"What's my DUPR rating?"* or *"Search for player Alaina Naccarato"* — Cursor will call the DUPRLY tools.
 
-**Or using uvx**:
+**Option B – Manual config**  
+1. Go to **Cursor Settings** → **MCP**  
+2. Add a server: **Name** `duprly`, **Command** `python3.11`, **Args** `["/absolute/path/to/duprly/duprly_mcp.py"]`  
+3. If you don’t use keychain, add env: `DUPR_USERNAME`, `DUPR_PASSWORD` (and optionally `DUPR_CLUB_ID`).
 
-```
-uvx duprly-mcp
-```
+**Or using uvx**: `uvx duprly-mcp`
 
 ⚠️ **Note**: Only run one instance of the MCP server (either on Cursor or Claude Desktop), not both.
 

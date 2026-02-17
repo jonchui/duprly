@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "duprly": {
+      "command": "python3.11",
+      "args": ["duprly_mcp.py"]
+    }
+  }
+}
