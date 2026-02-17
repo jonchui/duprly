@@ -92,13 +92,23 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_player_matches",
-            description="Get match history for a specific player",
+            description="Get match history for a specific player. Use raw_json=true to see full JSON. Use oldest=true with raw_json to see oldest (first) matches for rating progression.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "dupr_id": {
                         "type": "string",
                         "description": "DUPR player ID"
+                    },
+                    "raw_json": {
+                        "type": "boolean",
+                        "description": "If true, return raw JSON data for inspection",
+                        "default": False
+                    },
+                    "oldest": {
+                        "type": "boolean",
+                        "description": "If true with raw_json, return oldest (first) N matches to see rating at the start",
+                        "default": False
                     }
                 },
                 "required": ["dupr_id"]
@@ -132,7 +142,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_club_members",
-            description="Get all members from your DUPR club. Use recent=true for newest join first; use by_rating=true for highest DUPR (doubles) to lowest. Ratings are filled via parallel get_player lookups (DUPR has no batch API).",
+            description="Get all members from your DUPR club. Use recent=true for newest join first; use by_rating=true for highest DUPR (doubles) to lowest. Use all_members=true to return ALL members (not just first 50). Ratings are filled via parallel get_player lookups (DUPR has no batch API).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -149,6 +159,19 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "If true, sort by doubles DUPR rating (highest to lowest)",
                         "default": False
+                    },
+                    "all_members": {
+                        "type": "boolean",
+                        "description": "If true, enrich and return ALL members (not just first 50). Warning: may take a while for large clubs.",
+                        "default": False
+                    },
+                    "rating_min": {
+                        "type": "number",
+                        "description": "Optional: filter to members with doubles rating >= this value (e.g. 3.7)"
+                    },
+                    "rating_max": {
+                        "type": "number",
+                        "description": "Optional: filter to members with doubles rating <= this value (e.g. 4.2)"
                     }
                 }
             }
@@ -256,29 +279,56 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "get_player_matches":
             ensure_auth()
             dupr_id = arguments.get("dupr_id")
+            raw_json = arguments.get("raw_json", False)
+            oldest = arguments.get("oldest", False)
             
             rc, matches = dupr.get_member_match_history_p(dupr_id)
             if rc == 200:
-                output = f"Found {len(matches)} matches for player {dupr_id}:\n\n"
-                for i, match in enumerate(matches[:10], 1):  # Limit to 10 for display
-                    event_date = match.get("eventDate", "Unknown")
-                    event_name = match.get("eventName", match.get("league", match.get("tournament", "Unknown")))
-                    teams = match.get("teams", [])
+                if raw_json:
+                    # Return raw JSON for inspection (newest first, or oldest first if oldest=True)
+                    n_show = 5 if oldest else 3
+                    if oldest and len(matches) > n_show:
+                        slice_matches = matches[-n_show:]  # oldest N (list is newest-first)
+                        label = f"OLDEST {n_show} matches (chronological start):"
+                    else:
+                        slice_matches = matches[:n_show]
+                        label = "RAW JSON DATA (first 3 matches):" if not oldest else f"OLDEST {len(slice_matches)} matches:"
+                    output = f"Found {len(matches)} matches for player {dupr_id}\n\n"
+                    output += "="*80 + "\n"
+                    output += label + "\n"
+                    output += "="*80 + "\n\n"
+                    for i, match in enumerate(slice_matches, 1):
+                        output += f"{'='*80}\n"
+                        output += f"MATCH {i}\n"
+                        output += f"{'='*80}\n"
+                        output += json.dumps(match, indent=2)
+                        output += "\n\n"
+                    if len(matches) > n_show and not oldest:
+                        output += f"... and {len(matches) - n_show} more matches (use raw_json=false for formatted view)\n"
+                    elif oldest and len(matches) > n_show:
+                        output += f"... plus {len(matches) - n_show} more recent matches\n"
+                else:
+                    # Formatted display
+                    output = f"Found {len(matches)} matches for player {dupr_id}:\n\n"
+                    for i, match in enumerate(matches[:10], 1):  # Limit to 10 for display
+                        event_date = match.get("eventDate", "Unknown")
+                        event_name = match.get("eventName", match.get("league", match.get("tournament", "Unknown")))
+                        teams = match.get("teams", [])
+                        
+                        output += f"{i}. {event_name} ({event_date})\n"
+                        for team in teams:
+                            p1 = team.get("player1", {})
+                            p2 = team.get("player2", {})
+                            score = team.get("game1", "N/A")
+                            winner = "🏆" if team.get("winner") else ""
+                            p1_name = p1.get("fullName", "Unknown")
+                            p2_name = p2.get("fullName", "") if p2 else ""
+                            team_str = f"{p1_name}" + (f" & {p2_name}" if p2_name else "")
+                            output += f"   {winner} {team_str}: {score}\n"
+                        output += "\n"
                     
-                    output += f"{i}. {event_name} ({event_date})\n"
-                    for team in teams:
-                        p1 = team.get("player1", {})
-                        p2 = team.get("player2", {})
-                        score = team.get("game1", "N/A")
-                        winner = "🏆" if team.get("winner") else ""
-                        p1_name = p1.get("fullName", "Unknown")
-                        p2_name = p2.get("fullName", "") if p2 else ""
-                        team_str = f"{p1_name}" + (f" & {p2_name}" if p2_name else "")
-                        output += f"   {winner} {team_str}: {score}\n"
-                    output += "\n"
-                
-                if len(matches) > 10:
-                    output += f"... and {len(matches) - 10} more matches\n"
+                    if len(matches) > 10:
+                        output += f"... and {len(matches) - 10} more matches\n"
                 
                 return [TextContent(type="text", text=output)]
             else:
@@ -328,13 +378,35 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 return [TextContent(type="text", text="Error: club_id required or DUPR_CLUB_ID must be set in .env or keychain")]
             recent = arguments.get("recent", False)
             by_rating = arguments.get("by_rating", False)
+            all_members = arguments.get("all_members", False)  # New: return all members, not just first 50
+            rating_min = arguments.get("rating_min")  # Optional: filter by minimum doubles rating
+            rating_max = arguments.get("rating_max")  # Optional: filter by maximum doubles rating
+            
             rc, members = dupr.get_members_by_club(club_id, sort_by_recent=recent, sort_by_rating=by_rating)
             if rc == 200:
                 # Enrich with ratings: DUPR has no batch player API, so we fetch in parallel (e.g. 10 at a time)
-                enrich_limit = 200 if by_rating else 50  # 200 when sorting by rating, 50 for first page
+                if all_members:
+                    enrich_limit = len(members)  # Enrich ALL members when all_members=True
+                else:
+                    enrich_limit = 200 if by_rating else 50  # Default: 200 when sorting by rating, 50 for first page
                 members = dupr.enrich_members_with_ratings(members, limit=enrich_limit, max_workers=10)
                 if by_rating:
                     members = sorted(members, key=dupr._member_doubles_sort_key, reverse=True)
+                
+                # Filter by rating range if specified
+                if rating_min is not None or rating_max is not None:
+                    filtered = []
+                    for m in members:
+                        rating_str = dupr._member_rating_value(m, "doubles")
+                        if rating_str != "NR":
+                            try:
+                                rating_val = float(rating_str)
+                                if (rating_min is None or rating_val >= rating_min) and (rating_max is None or rating_val <= rating_max):
+                                    filtered.append(m)
+                            except (ValueError, TypeError):
+                                pass
+                    members = filtered
+                
                 if by_rating:
                     title = "Club members (highest DUPR to lowest)"
                 elif recent:
@@ -342,16 +414,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 else:
                     title = "Club members"
                 with_rating = sum(1 for m in members if dupr._member_rating_value(m, "doubles") != "NR")
-                output = f"Found {len(members)} {title.lower()} ({with_rating} with doubles rating, enriched via get_player)\n\n"
-                for i, member in enumerate(members[:50], 1):
+                output = f"Found {len(members)} {title.lower()} ({with_rating} with doubles rating, enriched via get_player). Reliability = doubles reliability (0-100).\n\n"
+                
+                # Display limit: all if all_members=True or rating filter active, else first 50
+                display_limit = len(members) if (all_members or rating_min is not None or rating_max is not None) else 50
+                for i, member in enumerate(members[:display_limit], 1):
                     name = member.get("fullName", "Unknown")
                     dupr_id = member.get("duprId", member.get("id", "Unknown"))
                     doubles = dupr._member_rating_value(member, "doubles")
                     singles = dupr._member_rating_value(member, "singles")
+                    ratings = member.get("ratings") or {}
+                    rel = ratings.get("doublesReliabilityScore")
+                    rel_str = str(rel) if rel is not None else "NR"
                     output += f"{i}. {name} (ID: {dupr_id})\n"
-                    output += f"   Doubles: {doubles}, Singles: {singles}\n\n"
-                if len(members) > 50:
-                    output += f"... and {len(members) - 50} more members\n"
+                    output += f"   Doubles: {doubles}, Singles: {singles}, Reliability: {rel_str}\n\n"
+                if len(members) > display_limit:
+                    output += f"... and {len(members) - display_limit} more members\n"
                 return [TextContent(type="text", text=output)]
             else:
                 return [TextContent(type="text", text=f"Failed to get club members (status: {rc})")]
