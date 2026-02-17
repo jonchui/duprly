@@ -1,11 +1,11 @@
 """
     Relational representation of DUPR Data
 """
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 from loguru import logger
 from sqlalchemy import create_engine
-from sqlalchemy import String, ForeignKey, Integer, Float
+from sqlalchemy import String, ForeignKey, Integer, Float, Text, DateTime
 from sqlalchemy import Table, Column, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import DeclarativeBase
@@ -312,3 +312,18 @@ class MatchDetail(Base):
         m = sess.execute(select(Match).where(
             Match.match_id == match_id)).scalar_one_or_none()
         return m
+
+
+class ClubMatchRaw(Base):
+    """
+    Raw match JSON from club member history, for reverse-engineering DUPR.
+    Stores full API response including preMatchRatingAndImpact and matchDoubleRatingImpact.
+    """
+    __tablename__ = "club_match_raw"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(unique=True)  # DUPR matchId
+    club_id: Mapped[int] = mapped_column()
+    event_date: Mapped[Optional[str]] = mapped_column(String(16))
+    raw_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
