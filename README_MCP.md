@@ -59,7 +59,13 @@ uv pip install -e .
    DUPR_CLUB_ID=YOUR_CLUB_ID_HERE
    ```
 
-3. **Test the MCP server**:
+3. **Install dependencies** (required before running the server):
+   ```bash
+   pip install -r requirements.txt
+   ```
+   Or install the package with SSE support: `pip install -e ".[sse]"`
+
+4. **Test the MCP server**:
    ```bash
    python duprly_mcp.py
    ```
