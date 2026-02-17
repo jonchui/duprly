@@ -79,3 +79,4 @@ echo $SHELL
 - Set zsh as default: `chsh -s $(which zsh)`
 - Restart terminal
 
+

@@ -69,3 +69,4 @@ echo "1. Restart your terminal (or run: source ~/.zshrc)"
 echo "2. Run: ./setup_mcp.sh"
 echo ""
 
+
