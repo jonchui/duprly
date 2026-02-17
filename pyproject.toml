@@ -44,7 +44,10 @@ sse = [
     "sse-starlette>=1.6.0",
     "uvicorn>=0.22.0",
 ]
+keychain = [
+    "keyring>=24.0.0",
+]
 
 [tool.setuptools]
-py-modules = ["duprly_mcp", "dupr_client", "dupr_db", "dupr_resources", "duprly"]
+py-modules = ["duprly_mcp", "dupr_client", "dupr_db", "dupr_resources", "duprly", "duprly_secrets"]
 

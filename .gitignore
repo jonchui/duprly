@@ -6,7 +6,10 @@
 .coverage
 .tox
 .cache
+# Local env with secrets - use .env.template as example; never commit .env
 .env
+.env.local
+.env.*.local
 
 *.log
 *.sqlite3

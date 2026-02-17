@@ -27,6 +27,12 @@ from dupr_db import open_db, Player, Match, Rating, MatchDetail
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+try:
+    from duprly_secrets import get_secret
+except ImportError:
+    def get_secret(key: str):
+        return os.getenv(key)
+
 # Initialize DUPR client and database
 dupr = DuprClient()
 eng = open_db()
@@ -36,11 +42,14 @@ server = Server("duprly")
 
 
 def ensure_auth():
-    """Ensure we're authenticated with DUPR"""
-    username = os.getenv("DUPR_USERNAME")
-    password = os.getenv("DUPR_PASSWORD")
+    """Ensure we're authenticated with DUPR (credentials from .env or keychain)."""
+    username = get_secret("DUPR_USERNAME")
+    password = get_secret("DUPR_PASSWORD")
     if not username or not password:
-        raise ValueError("DUPR_USERNAME and DUPR_PASSWORD must be set in .env file")
+        raise ValueError(
+            "DUPR_USERNAME and DUPR_PASSWORD must be set in .env or keychain. "
+            "Run: python3 scripts/set_secrets.py"
+        )
     dupr.auth_user(username, password)
 
 
@@ -129,7 +138,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "club_id": {
                         "type": "string",
-                        "description": "DUPR club ID (optional, uses DUPR_CLUB_ID from .env if not provided)"
+                        "description": "DUPR club ID (optional, uses DUPR_CLUB_ID from .env or keychain if not provided)"
                     }
                 }
             }
@@ -296,9 +305,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         
         elif name == "get_club_members":
             ensure_auth()
-            club_id = arguments.get("club_id") or os.getenv("DUPR_CLUB_ID")
+            club_id = arguments.get("club_id") or get_secret("DUPR_CLUB_ID")
             if not club_id:
-                return [TextContent(type="text", text="Error: club_id required or DUPR_CLUB_ID must be set in .env")]
+                return [TextContent(type="text", text="Error: club_id required or DUPR_CLUB_ID must be set in .env or keychain")]
             
             rc, members = dupr.get_members_by_club(club_id)
             if rc == 200:
@@ -429,10 +438,41 @@ async def run_stdio():
         )
 
 
+def _check_api_key(request):
+    """If MCP_API_KEY is set, require Authorization: Bearer <key>. Return (True, None) if OK, else (False, Response)."""
+    expected = get_secret("MCP_API_KEY")
+    if not expected:
+        return True, None
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        from starlette.responses import JSONResponse
+        return False, JSONResponse(
+            status_code=401,
+            content={
+                "error": {"code": 401, "message": "Unauthorized: Invalid or missing API key"},
+                "id": None,
+                "jsonrpc": "2.0",
+            },
+        )
+    token = auth[7:].strip()
+    if token != expected:
+        from starlette.responses import JSONResponse
+        return False, JSONResponse(
+            status_code=401,
+            content={
+                "error": {"code": 401, "message": "Unauthorized: Invalid or missing API key"},
+                "id": None,
+                "jsonrpc": "2.0",
+            },
+        )
+    return True, None
+
+
 async def run_sse(host: str = "0.0.0.0", port: int = 8000):
     """Run the MCP server over HTTP/SSE (for Poke.com and other remote clients)."""
     try:
         from mcp.server.sse import SseServerTransport
+        from mcp.server.transport_security import TransportSecuritySettings
         from starlette.applications import Starlette
         from starlette.routing import Route, Mount
         from starlette.responses import Response
@@ -445,9 +485,14 @@ async def run_sse(host: str = "0.0.0.0", port: int = 8000):
         print(f"Import error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    sse_transport = SseServerTransport("/messages/")
+    # Disable DNS rebinding checks so localhost/0.0.0.0 work without 421/403
+    security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    sse_transport = SseServerTransport("/messages/", security_settings=security)
 
     async def handle_sse(request):
+        ok, err_response = _check_api_key(request)
+        if not ok:
+            return err_response
         async with sse_transport.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
@@ -456,10 +501,19 @@ async def run_sse(host: str = "0.0.0.0", port: int = 8000):
             )
         return Response()
 
+    async def messages_asgi_with_auth(scope, receive, send):
+        from starlette.requests import Request
+        request = Request(scope, receive, send)
+        ok, err_response = _check_api_key(request)
+        if not ok:
+            await err_response(scope, receive, send)
+            return
+        await sse_transport.handle_post_message(scope, receive, send)
+
     starlette_app = Starlette(
         routes=[
             Route("/sse", endpoint=handle_sse, methods=["GET"]),
-            Mount("/messages/", app=sse_transport.handle_post_message),
+            Mount("/messages/", app=messages_asgi_with_auth),
         ]
     )
     config = uvicorn.Config(starlette_app, host=host, port=port)
@@ -491,7 +545,11 @@ def main():
     args = parser.parse_args()
     if args.sse:
         print(f"DUPRLY MCP SSE server: http://{args.host}:{args.port}/sse", file=sys.stderr)
-        print("For Poke.com: add MCP Server URL (e.g. https://your-host/sse)", file=sys.stderr)
+        print("Use http://127.0.0.1:8000/sse (not 0.0.0.0) when connecting from the same machine (e.g. Poke).", file=sys.stderr)
+        if get_secret("MCP_API_KEY"):
+            print("MCP_API_KEY is set: client must send Authorization: Bearer <same key>.", file=sys.stderr)
+        else:
+            print("MCP_API_KEY not set: no API key required. If you get 401, run scripts/set_secrets.py or set MCP_API_KEY in .env and the same key in Poke.", file=sys.stderr)
         asyncio.run(run_sse(host=args.host, port=args.port))
     else:
         asyncio.run(run_stdio())

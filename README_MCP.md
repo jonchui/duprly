@@ -14,7 +14,7 @@ An MCP (Model Context Protocol) server that exposes DUPR (Dynamic Universal Pick
 
 ## Prerequisites
 
-- Python 3.10+
+- **Python 3.10+** (required for the `mcp` package). On macOS, `python3` is often 3.9 — **you must use `python3.11`** (see below).
 - DUPR account credentials
 - `.env` file with your DUPR credentials (see setup below)
 
@@ -45,29 +45,58 @@ brew install uv  # macOS
 uv pip install -e .
 ```
 
+## How to install MCP (Python 3.10+ required)
+
+If you see **"No matching distribution found for mcp"** or **"Requires-Python >=3.10"**, your default `python3` is too old. Use **Python 3.11** explicitly:
+
+```bash
+# Install MCP and other deps (use python3.11, not python3)
+python3.11 -m pip install mcp requests python-dotenv SQLAlchemy loguru
+```
+
+For SSE mode (Poke.com), also install:
+
+```bash
+python3.11 -m pip install starlette sse-starlette uvicorn
+```
+
+Then **run the server** with the same Python:
+
+```bash
+python3.11 duprly_mcp.py
+# or for Poke.com:
+python3.11 duprly_mcp.py --sse --port 8000
+```
+
+Don't have Python 3.11? Install it: `brew install python@3.11` then use `python3.11` as above.
+
+---
+
 ## Setup
 
-1. **Create `.env` file** (copy from `env.example`):
+1. **Create `.env`** from the template (`.env` is gitignored; never commit it):
    ```bash
-   cp env.example .env
+   cp .env.template .env
    ```
 
-2. **Configure your DUPR credentials** in `.env`:
-   ```env
-   DUPR_USERNAME=your_email@example.com
-   DUPR_PASSWORD=your_password_here
-   DUPR_CLUB_ID=YOUR_CLUB_ID_HERE
-   ```
+2. **Set your credentials** — either edit `.env` or store them in the system keychain (recommended for passwords and API key):
+   - **Option A – .env only**: Edit `.env` and set `DUPR_USERNAME`, `DUPR_PASSWORD`, `DUPR_CLUB_ID`, and optionally `MCP_API_KEY`.
+   - **Option B – Keychain (macOS)**: Install keyring and run the set-secrets script so passwords and API key are stored in Keychain instead of plain text:
+     ```bash
+     pip install keyring   # or: pip install -e ".[keychain]"
+     python3 scripts/set_secrets.py
+     ```
+     You can then remove or leave blank the sensitive values in `.env`; the app will read them from the keychain.
 
-3. **Install dependencies** (required before running the server):
+3. **Install dependencies** (required before running the server). Use **Python 3.10+** (e.g. `python3.11` on macOS if `python3` is 3.9):
    ```bash
-   pip install -r requirements.txt
+   python3.11 -m pip install -r requirements.txt
    ```
-   Or install the package with SSE support: `pip install -e ".[sse]"`
+   Or install the package with SSE support: `python3.11 -m pip install -e ".[sse]"`
 
-4. **Test the MCP server**:
+4. **Test the MCP server** (use the same Python you used for install, e.g. `python3.11`):
    ```bash
-   python duprly_mcp.py
+   python3.11 duprly_mcp.py
    ```
 
 ## Integration
@@ -149,7 +178,8 @@ Poke.com connects to MCP servers over **HTTP/SSE**. To use DUPRLY from [Poke](ht
    - Go to **Settings → Connections** in the Poke app
    - Click **Add Integration** → **Create**
    - Enter a **Name** (e.g. `duprly`)
-   - Enter the **MCP Server URL**: your base URL + `/sse` (e.g. `https://your-host.example.com/sse` or `https://xxxx.ngrok.io/sse`)
+   - **MCP Server URL**: use **`http://127.0.0.1:8000/sse`** (not `http://0.0.0.0:8000/sse`) when Poke is on the same machine. For remote access use your public URL + `/sse`.
+   - **API Key**: leave empty unless you want auth. If you get **401 "Invalid or missing API key"**, set `MCP_API_KEY` in your `.env` to any secret string and enter the **same string** in Poke's API Key field.
    - Click **Create Integration**
 
 You can then ask Poke to use DUPR (e.g. "What's my DUPR rating?" or "Search for player Alaina").
@@ -294,10 +324,20 @@ python -c "from duprly_mcp import *; from sqlalchemy.orm import Session; from du
 - Ensure your `.env` file has correct `DUPR_USERNAME` and `DUPR_PASSWORD`
 - Check that your credentials are valid by testing with `duprly.py` directly
 
-### Import Errors
+### Import Errors / "No matching distribution found for mcp"
 
-- Make sure all dependencies are installed: `pip install -r requirements.txt`
-- Verify Python version is 3.10+: `python --version`
+- The `mcp` package requires **Python 3.10+**. If you see this error, your default `python3` is likely 3.9 (e.g. Xcode's).
+- Use a newer Python for install and run:
+  ```bash
+  python3.11 -m pip install -r requirements.txt
+  python3.11 duprly_mcp.py --sse --port 8000
+  ```
+- On macOS with Homebrew: `brew install python@3.11` then use `python3.11` as above.
+
+### 401 "Unauthorized: Invalid or missing API key" (e.g. when using Poke)
+
+- **Use the right URL**: In Poke, use **`http://127.0.0.1:8000/sse`** (or `http://localhost:8000/sse`), not `http://0.0.0.0:8000/sse`. `0.0.0.0` is the server bind address, not a URL clients should use.
+- **Optional API key**: If the client (e.g. Poke) requires an API key, set `MCP_API_KEY` in your `.env` to any secret (e.g. `my-secret-key`) and enter the **exact same value** in Poke's "API Key" field when adding the integration. If you don't want auth, leave `MCP_API_KEY` unset and leave Poke's API key empty.
 
 ### MCP Connection Issues
 
