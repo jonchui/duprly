@@ -17,6 +17,7 @@ from requests import Response
 from loguru import logger
 import json
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class DuprClient(object):
@@ -173,21 +174,22 @@ class DuprClient(object):
         return 4 <= len(s) <= 12 and not s.isdigit()
 
     def get_player(self, player_id: str) -> tuple[int, Optional[dict]]:
-        """Get player by numeric id or short duprId. Falls back to search when short id returns 400."""
+        """Get player by numeric id or short duprId. Falls back to search when short id returns 4xx."""
         player_id = str(player_id).strip()
         r = self.dupr_get(f"/player/{self.version}/{player_id}", "get_player")
         if r.status_code == 200:
             self.ppj(r.json())
             return r.status_code, r.json()["result"]
-        # API often returns 400 for short duprId; resolve via search
-        if r.status_code in (400, 404) and self._is_short_dupr_id(player_id):
+        # API returns 400/404 for short duprId; resolve via search (search accepts short id as query)
+        if 400 <= r.status_code < 500 and self._is_short_dupr_id(player_id):
             rc, result = self.search_players(player_id, limit=10)
             if rc == 200 and result:
-                hits = result.get("hits") or []
+                hits = result.get("hits") if isinstance(result, dict) else (result if isinstance(result, list) else [])
+                if not isinstance(hits, list):
+                    hits = []
                 for hit in hits:
-                    if (hit.get("duprId") or "").strip().upper() == player_id.upper():
+                    if hit and (hit.get("duprId") or "").strip().upper() == player_id.upper():
                         return 200, hit
-            # Search didn't find; return original error
         return r.status_code, None
 
     def enrich_members_with_ratings(
@@ -195,25 +197,45 @@ class DuprClient(object):
         members: list[dict],
         limit: int = 500,
         delay_sec: float = 0.05,
+        max_workers: int = 0,
     ) -> list[dict]:
         """
         For each member (up to limit), call get_player(id or duprId) and merge ratings into member.
-        Use when club members API returns no ratings; delay_sec avoids rate limits.
-        Tries numeric id first (API often expects this), then duprId.
+        Use when club members API returns no ratings.
+        - delay_sec: used only when max_workers=0 to avoid rate limits.
+        - max_workers: if > 0, fetch in parallel (e.g. 10) instead of one-by-one; no delay between calls.
+        DUPR has no batch player API, so we "batch" by concurrency (many get_player calls in parallel).
         """
         import time
+        to_fetch = []
         for i, member in enumerate(members):
             if i >= limit:
                 break
             player_id = member.get("id") or member.get("duprId")
-            if player_id is None:
-                continue
-            rc, player = self.get_player(str(player_id))
-            if rc == 200 and player and isinstance(player.get("ratings"), dict):
-                member["ratings"] = player["ratings"]
-            if delay_sec > 0:
-                time.sleep(delay_sec)
-        return members
+            if player_id is not None:
+                to_fetch.append((i, member, str(player_id)))
+
+        if max_workers and max_workers > 0:
+            def fetch_one(item):
+                idx, member, pid = item
+                rc, player = self.get_player(pid)
+                if rc == 200 and player and isinstance(player.get("ratings"), dict):
+                    member["ratings"] = player["ratings"]
+                return idx
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(fetch_one, item): item for item in to_fetch}
+                for f in as_completed(futures):
+                    f.result()
+            return members
+        else:
+            for _, member, player_id in to_fetch:
+                rc, player = self.get_player(player_id)
+                if rc == 200 and player and isinstance(player.get("ratings"), dict):
+                    member["ratings"] = player["ratings"]
+                if delay_sec > 0:
+                    time.sleep(delay_sec)
+            return members
 
     def get_club(self, club_id: str):
         r = self.dupr_get(f"/club/{self.version}/{club_id}", "get_club")

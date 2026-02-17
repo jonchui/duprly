@@ -132,7 +132,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_club_members",
-            description="Get all members from your DUPR club. Use recent=true for newest join first; use by_rating=true for highest DUPR (doubles) to lowest.",
+            description="Get all members from your DUPR club. Use recent=true for newest join first; use by_rating=true for highest DUPR (doubles) to lowest. Ratings are filled via parallel get_player lookups (DUPR has no batch API).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -330,9 +330,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             by_rating = arguments.get("by_rating", False)
             rc, members = dupr.get_members_by_club(club_id, sort_by_recent=recent, sort_by_rating=by_rating)
             if rc == 200:
-                # Enrich with ratings by calling get_player(duprId) for each member (club list often has no ratings)
+                # Enrich with ratings: DUPR has no batch player API, so we fetch in parallel (e.g. 10 at a time)
                 enrich_limit = 200 if by_rating else 50  # 200 when sorting by rating, 50 for first page
-                members = dupr.enrich_members_with_ratings(members, limit=enrich_limit, delay_sec=0.05)
+                members = dupr.enrich_members_with_ratings(members, limit=enrich_limit, max_workers=10)
                 if by_rating:
                     members = sorted(members, key=dupr._member_doubles_sort_key, reverse=True)
                 if by_rating:
