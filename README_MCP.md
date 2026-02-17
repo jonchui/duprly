@@ -122,6 +122,32 @@ uvx duprly-mcp
 
 ⚠️ **Note**: Only run one instance of the MCP server (either on Cursor or Claude Desktop), not both.
 
+### Poke.com Integration
+
+Poke.com connects to MCP servers over **HTTP/SSE**. To use DUPRLY from [Poke](https://poke.com):
+
+1. **Install SSE dependencies**:
+   ```bash
+   pip install 'duprly-mcp[sse]'
+   ```
+
+2. **Run the MCP server in SSE mode** (expose it at a URL):
+   ```bash
+   python duprly_mcp.py --sse --port 8000
+   ```
+   For remote access (e.g. from Poke), expose this server via a public URL:
+   - **Local testing**: Use [ngrok](https://ngrok.com) or similar: `ngrok http 8000`, then use the `https://.../sse` URL.
+   - **Production**: Deploy the app (e.g. on Railway, Fly.io, or a VPS) and use your public URL.
+
+3. **Add the integration in Poke**:
+   - Go to **Settings → Connections** in the Poke app
+   - Click **Add Integration** → **Create**
+   - Enter a **Name** (e.g. `duprly`)
+   - Enter the **MCP Server URL**: your base URL + `/sse` (e.g. `https://your-host.example.com/sse` or `https://xxxx.ngrok.io/sse`)
+   - Click **Create Integration**
+
+You can then ask Poke to use DUPR (e.g. "What's my DUPR rating?" or "Search for player Alaina").
+
 ## Available Tools
 
 ### `search_players`
@@ -170,6 +196,16 @@ Get expected scores for a doubles match between two teams.
 **Example:**
 ```
 Get expected score for match between players 1234567890 & 9876543210 vs 5555555555 & 6666666666
+```
+
+### `get_my_profile`
+Get the logged-in user's DUPR profile and ratings (doubles and singles).
+
+**Parameters:** None (uses DUPR_USERNAME/DUPR_PASSWORD from .env)
+
+**Example:**
+```
+What's my DUPR score?
 ```
 
 ### `get_club_members`

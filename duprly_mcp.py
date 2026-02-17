@@ -169,6 +169,14 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["dupr_id"]
             }
+        ),
+        Tool(
+            name="get_my_profile",
+            description="Get the logged-in user's DUPR profile and ratings (doubles, singles). Use this to find 'my' DUPR score.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
         )
     ]
 
@@ -386,6 +394,24 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 
                 return [TextContent(type="text", text=output)]
         
+        elif name == "get_my_profile":
+            ensure_auth()
+            rc, profile = dupr.get_profile()
+            if rc == 200 and profile:
+                name = profile.get("fullName", profile.get("firstName", "Unknown"))
+                dupr_id = profile.get("duprId", profile.get("id", "Unknown"))
+                ratings = profile.get("ratings", {})
+                doubles = ratings.get("doubles", "NR")
+                singles = ratings.get("singles", "NR")
+                output = f"Your DUPR profile:\n\n"
+                output += f"Name: {name}\n"
+                output += f"DUPR ID: {dupr_id}\n"
+                output += f"Doubles rating: {doubles}\n"
+                output += f"Singles rating: {singles}\n"
+                return [TextContent(type="text", text=output)]
+            else:
+                return [TextContent(type="text", text=f"Failed to get profile (status: {rc})")]
+        
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     
@@ -393,8 +419,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
-async def main():
-    """Run the MCP server"""
+async def run_stdio():
+    """Run the MCP server over stdio (default for Cursor, etc.)."""
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -403,7 +429,75 @@ async def main():
         )
 
 
+async def run_sse(host: str = "0.0.0.0", port: int = 8000):
+    """Run the MCP server over HTTP/SSE (for Poke.com and other remote clients)."""
+    try:
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.routing import Route, Mount
+        from starlette.responses import Response
+        import uvicorn
+    except ImportError as e:
+        print(
+            "SSE server requires extra deps. Install with: pip install 'duprly-mcp[sse]'",
+            file=sys.stderr,
+        )
+        print(f"Import error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    sse_transport = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse_transport.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1], server.create_initialization_options()
+            )
+        return Response()
+
+    starlette_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse, methods=["GET"]),
+            Mount("/messages/", app=sse_transport.handle_post_message),
+        ]
+    )
+    config = uvicorn.Config(starlette_app, host=host, port=port)
+    srv = uvicorn.Server(config)
+    await srv.serve()
+
+
+def main():
+    """Run the MCP server (stdio or SSE based on args)."""
+    import argparse
+    parser = argparse.ArgumentParser(description="DUPRLY MCP Server")
+    parser.add_argument(
+        "--sse",
+        action="store_true",
+        help="Run over HTTP/SSE (for Poke.com). Default is stdio.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for SSE server (default: 8000)",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host for SSE server (default: 0.0.0.0)",
+    )
+    args = parser.parse_args()
+    if args.sse:
+        print(f"DUPRLY MCP SSE server: http://{args.host}:{args.port}/sse", file=sys.stderr)
+        print("For Poke.com: add MCP Server URL (e.g. https://your-host/sse)", file=sys.stderr)
+        asyncio.run(run_sse(host=args.host, port=args.port))
+    else:
+        asyncio.run(run_stdio())
+
+
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    main()
 
