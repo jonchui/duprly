@@ -165,13 +165,55 @@ class DuprClient(object):
             return r.status_code, r.json()["result"]
         return r.status_code, None
 
+    def _is_short_dupr_id(self, player_id: str) -> bool:
+        """True if this looks like a short duprId (e.g. L2PLVZ) not a numeric id."""
+        if not player_id or not isinstance(player_id, str):
+            return False
+        s = player_id.strip()
+        return 4 <= len(s) <= 12 and not s.isdigit()
+
     def get_player(self, player_id: str) -> tuple[int, Optional[dict]]:
+        """Get player by numeric id or short duprId. Falls back to search when short id returns 400."""
+        player_id = str(player_id).strip()
         r = self.dupr_get(f"/player/{self.version}/{player_id}", "get_player")
         if r.status_code == 200:
             self.ppj(r.json())
             return r.status_code, r.json()["result"]
-        else:
-            return r.status_code, None
+        # API often returns 400 for short duprId; resolve via search
+        if r.status_code in (400, 404) and self._is_short_dupr_id(player_id):
+            rc, result = self.search_players(player_id, limit=10)
+            if rc == 200 and result:
+                hits = result.get("hits") or []
+                for hit in hits:
+                    if (hit.get("duprId") or "").strip().upper() == player_id.upper():
+                        return 200, hit
+            # Search didn't find; return original error
+        return r.status_code, None
+
+    def enrich_members_with_ratings(
+        self,
+        members: list[dict],
+        limit: int = 500,
+        delay_sec: float = 0.05,
+    ) -> list[dict]:
+        """
+        For each member (up to limit), call get_player(id or duprId) and merge ratings into member.
+        Use when club members API returns no ratings; delay_sec avoids rate limits.
+        Tries numeric id first (API often expects this), then duprId.
+        """
+        import time
+        for i, member in enumerate(members):
+            if i >= limit:
+                break
+            player_id = member.get("id") or member.get("duprId")
+            if player_id is None:
+                continue
+            rc, player = self.get_player(str(player_id))
+            if rc == 200 and player and isinstance(player.get("ratings"), dict):
+                member["ratings"] = player["ratings"]
+            if delay_sec > 0:
+                time.sleep(delay_sec)
+        return members
 
     def get_club(self, club_id: str):
         r = self.dupr_get(f"/club/{self.version}/{club_id}", "get_club")
@@ -239,11 +281,51 @@ class DuprClient(object):
         else:
             return None, hits
 
-    def get_members_by_club(self, club_id: str):
+    def _member_rating_value(self, member: dict, kind: str = "doubles") -> str:
+        """Get rating string from member using multiple possible API key paths. Returns 'NR' if missing."""
+        for ratings in (member.get("ratings"), member.get("rating")):
+            if not isinstance(ratings, dict):
+                continue
+            # Try common key variants (API may use different casing or naming)
+            keys = (
+                ["doubles", "Doubles", "DOUBLES", "doublesRating", "doubles_rating"]
+                if kind == "doubles"
+                else ["singles", "Singles", "SINGLES", "singlesRating", "singles_rating"]
+            )
+            for key in keys:
+                val = ratings.get(key)
+                if val is not None and str(val).strip() and str(val).upper() != "NR":
+                    return str(val).strip()
+        # Top-level fallback (some APIs put rating at member root)
+        val = member.get("doubles" if kind == "doubles" else "singles")
+        if val is not None and str(val).strip() and str(val).upper() != "NR":
+            return str(val).strip()
+        return "NR"
+
+    def _member_doubles_sort_key(self, member: dict) -> float:
+        """Sort key for member by doubles rating (highest first). NR/empty → -1 so they sort last."""
+        raw = self._member_rating_value(member, "doubles")
+        if raw == "NR":
+            return -1.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return -1.0
+
+    def get_members_by_club(
+        self,
+        club_id: str,
+        sort_by_recent: bool = False,
+        sort_by_rating: bool = False,
+    ):
         """
         this call is a post call because it supports query and filter.
+        If sort_by_recent True, request sort by join date descending (API may support).
+        If sort_by_rating True, sort members client-side by doubles rating (highest first).
         """
         data = {"exclude": [], "limit": 20, "offset": 0, "query": "*"}
+        if sort_by_recent:
+            data["sort"] = {"parameter": "JOIN_DATE", "order": "DESC"}
         offset = 0
         pdata = []
         while offset is not None:
@@ -257,6 +339,9 @@ class DuprClient(object):
                 self.ppj(r.json())
                 offset, hits = self.handle_paging(r.json())
                 pdata.extend(hits)
+
+        if sort_by_rating and pdata:
+            pdata = sorted(pdata, key=self._member_doubles_sort_key, reverse=True)
 
         return r.status_code, pdata
 

@@ -132,13 +132,23 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_club_members",
-            description="Get all members from your DUPR club",
+            description="Get all members from your DUPR club. Use recent=true for newest join first; use by_rating=true for highest DUPR (doubles) to lowest.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "club_id": {
                         "type": "string",
                         "description": "DUPR club ID (optional, uses DUPR_CLUB_ID from .env or keychain if not provided)"
+                    },
+                    "recent": {
+                        "type": "boolean",
+                        "description": "If true, return members sorted by join date (newest first)",
+                        "default": False
+                    },
+                    "by_rating": {
+                        "type": "boolean",
+                        "description": "If true, sort by doubles DUPR rating (highest to lowest)",
+                        "default": False
                     }
                 }
             }
@@ -182,6 +192,14 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_my_profile",
             description="Get the logged-in user's DUPR profile and ratings (doubles, singles). Use this to find 'my' DUPR score.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="inspect_club_member_sample",
+            description="Return raw API structure of first club member and count with ratings (for debugging why ratings show as NR).",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -308,23 +326,32 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             club_id = arguments.get("club_id") or get_secret("DUPR_CLUB_ID")
             if not club_id:
                 return [TextContent(type="text", text="Error: club_id required or DUPR_CLUB_ID must be set in .env or keychain")]
-            
-            rc, members = dupr.get_members_by_club(club_id)
+            recent = arguments.get("recent", False)
+            by_rating = arguments.get("by_rating", False)
+            rc, members = dupr.get_members_by_club(club_id, sort_by_recent=recent, sort_by_rating=by_rating)
             if rc == 200:
-                output = f"Found {len(members)} club members:\n\n"
-                for i, member in enumerate(members[:50], 1):  # Limit to 50 for display
+                # Enrich with ratings by calling get_player(duprId) for each member (club list often has no ratings)
+                enrich_limit = 200 if by_rating else 50  # 200 when sorting by rating, 50 for first page
+                members = dupr.enrich_members_with_ratings(members, limit=enrich_limit, delay_sec=0.05)
+                if by_rating:
+                    members = sorted(members, key=dupr._member_doubles_sort_key, reverse=True)
+                if by_rating:
+                    title = "Club members (highest DUPR to lowest)"
+                elif recent:
+                    title = "Recent club members (newest first)"
+                else:
+                    title = "Club members"
+                with_rating = sum(1 for m in members if dupr._member_rating_value(m, "doubles") != "NR")
+                output = f"Found {len(members)} {title.lower()} ({with_rating} with doubles rating, enriched via get_player)\n\n"
+                for i, member in enumerate(members[:50], 1):
                     name = member.get("fullName", "Unknown")
                     dupr_id = member.get("duprId", member.get("id", "Unknown"))
-                    ratings = member.get("ratings", {})
-                    doubles = ratings.get("doubles", "NR")
-                    singles = ratings.get("singles", "NR")
-                    
+                    doubles = dupr._member_rating_value(member, "doubles")
+                    singles = dupr._member_rating_value(member, "singles")
                     output += f"{i}. {name} (ID: {dupr_id})\n"
                     output += f"   Doubles: {doubles}, Singles: {singles}\n\n"
-                
                 if len(members) > 50:
                     output += f"... and {len(members) - 50} more members\n"
-                
                 return [TextContent(type="text", text=output)]
             else:
                 return [TextContent(type="text", text=f"Failed to get club members (status: {rc})")]
