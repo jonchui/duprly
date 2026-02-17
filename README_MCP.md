@@ -201,7 +201,7 @@ Poke.com connects to MCP servers over **HTTP/SSE**. To use DUPRLY from [Poke](ht
    - Click **Add Integration** → **Create**
    - Enter a **Name** (e.g. `duprly`)
    - **MCP Server URL**: use **`http://127.0.0.1:8000/sse`** (not `http://0.0.0.0:8000/sse`) when Poke is on the same machine. For remote access use your public URL + `/sse`.
-   - **API Key**: leave empty unless you want auth. If you get **401 "Invalid or missing API key"**, set `MCP_API_KEY` in your `.env` to any secret string and enter the **same string** in Poke's API Key field.
+   - **API Key**: leave empty unless you want auth. To generate and set a unique key: **`python3.11 scripts/generate_mcp_api_key.py`** (or **`just mcp-key`**), then paste the printed key into Poke's API Key field.
    - Click **Create Integration**
 
 You can then ask Poke to use DUPR (e.g. "What's my DUPR rating?" or "Search for player Alaina").
@@ -359,7 +359,7 @@ python -c "from duprly_mcp import *; from sqlalchemy.orm import Session; from du
 ### 401 "Unauthorized: Invalid or missing API key" (e.g. when using Poke)
 
 - **Use the right URL**: In Poke, use **`http://127.0.0.1:8000/sse`** (or `http://localhost:8000/sse`), not `http://0.0.0.0:8000/sse`. `0.0.0.0` is the server bind address, not a URL clients should use.
-- **Optional API key**: If the client (e.g. Poke) requires an API key, set `MCP_API_KEY` in your `.env` to any secret (e.g. `my-secret-key`) and enter the **exact same value** in Poke's "API Key" field when adding the integration. If you don't want auth, leave `MCP_API_KEY` unset and leave Poke's API key empty.
+- **Optional API key**: Generate one with **`python3.11 scripts/generate_mcp_api_key.py`** (or **`just mcp-key`**); it’s stored in keychain or `.env` and printed so you can paste it into Poke’s "API Key" field. If you don’t want auth, leave `MCP_API_KEY` unset and leave Poke’s API key empty.
 
 ### MCP Connection Issues
 

@@ -11,6 +11,10 @@ mcp-sse:
 set-secrets:
 	python3.11 scripts/set_secrets.py
 
+# Generate unique MCP_API_KEY and store in keychain (or .env)
+mcp-key:
+	python3.11 scripts/generate_mcp_api_key.py
+
 setup:
 	./setup_simple.sh
 
