@@ -106,7 +106,7 @@ def main():
     parser = argparse.ArgumentParser(description="Crawl club match history into local DB")
     parser.add_argument("--limit", type=int, default=0, help="Max members to process (0 = all)")
     parser.add_argument("--max-matches", type=int, default=0, help="Stop after storing this many club matches (0 = no limit)")
-    parser.add_argument("--delay", type=float, default=0.2, help="Delay between member API calls (seconds)")
+    parser.add_argument("--delay", type=float, default=0.5, help="Delay between member API calls (seconds); increase if you see 429 rate limits")
     args = parser.parse_args()
 
     club_id = os.getenv("DUPR_CLUB_ID")
