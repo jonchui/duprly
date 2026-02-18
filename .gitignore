@@ -12,6 +12,9 @@
 .env.*.local
 
 *.log
+crawl_*.log
+match_rating_data.csv
+match_rating_data_with_reliability.csv
 *.sqlite3
 *.sqlite
 *.xlsx
