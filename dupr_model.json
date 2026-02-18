@@ -1,0 +1,17 @@
+{
+  "K": 0.028909415817295555,
+  "scale": 231.63139852440247,
+  "reliability_func": "inverse",
+  "reliability_params": {
+    "a": -1.635498054727508,
+    "b": 3.064879287300183
+  },
+  "mae": 0.0331045996708595,
+  "rmse": 0.0610760180056314,
+  "correlation": 0.12381364736084231,
+  "n_train": 2742,
+  "n_test": 686,
+  "n_matches_with_reliability": 3428,
+  "formula": "impact = K * (actual_games - expected_games) * sign * g(reliability)",
+  "g_formula": "g(rel) = -1.6355 / (1 + rel/3.06)"
+}

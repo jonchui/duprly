@@ -1,0 +1,9 @@
+DUPR Model Fit Results
+==================================================
+K (step size): 0.00050658
+Scale (ELO): 1514.09
+Test MAE: 0.02508447
+
+Formula: impact = K * (actual_games - expected_games) * sign
+Where expected_games uses ELO: prob = 1/(1+10^(-rating_diff*scale/400))
+Expected games = prob * 22
