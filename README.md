@@ -79,6 +79,55 @@ python3 duprly.py --help
 - `python3 duprly.py update-ratings` - Update player ratings
 - `python3 duprly.py build-match-detail` - Flatten match data for faster queries
 
+### Shadow Reset Simulator (Last N Matches)
+
+Use the Python simulator to replay your recent form over rolling match windows.
+
+```bash
+python3 scripts/shadow_reset.py --dupr-id YOUR_DUPR_ID --windows 8 16 24
+```
+
+Optional reliability modes:
+
+```bash
+# Include all matches (default)
+python3 scripts/shadow_reset.py --dupr-id YOUR_DUPR_ID --mode include_all
+
+# Skip matches below reliability threshold for the target player
+python3 scripts/shadow_reset.py --dupr-id YOUR_DUPR_ID --mode min_rel_threshold --min-rel 95
+
+# Apply current reliability as a weighting proxy to each impact
+python3 scripts/shadow_reset.py --dupr-id YOUR_DUPR_ID --mode weighted_current
+```
+
+The output includes:
+- baseline rating
+- shadow rating for each window
+- higher-of rating (`max(baseline, shadow)`)
+- used/skipped matches and diversity diagnostics
+
+Important caveat: this is a reverse-engineered approximation, not DUPR's internal production implementation.
+It is designed for directional "what-if" analysis, especially for last `8/16/24` reset-style windows.
+
+Run history is saved to SQLite by default:
+
+- DB file: `shadow_reset_history.db`
+- Tables:
+  - `shadow_reset_runs` (one row per CLI invocation)
+  - `shadow_reset_window_results` (one row per window per run)
+
+Disable logging for one-off runs:
+
+```bash
+python3 scripts/shadow_reset.py --dupr-id YOUR_DUPR_ID --no-log
+```
+
+Use a custom DB path:
+
+```bash
+python3 scripts/shadow_reset.py --dupr-id YOUR_DUPR_ID --history-db data/shadow_runs.db
+```
+
 ### Getting Started
 
 1. First, run `get-all-players` to download all players from your club
