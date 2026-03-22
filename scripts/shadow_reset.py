@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """
 Compute reset-style shadow ratings over last-N DUPR matches.
+
+Implementation and scope context is tracked in:
+`.cursor/plans/shadow_reset_calculator_860a546f.plan.md`.
+
+WARNING:
+This script uses a reverse-engineered predictor model. Latest strict
+accuracy evaluation on Jon's last-74 sample reported LOW TRUST
+(`docs/PREDICTOR_CONFIDENCE_JON_74.md`). Treat outputs as directional
+what-if estimates, not official DUPR-equivalent values.
 """
 
 from __future__ import annotations
@@ -19,6 +28,19 @@ from dupr_client import DuprClient
 from dupr_predictor import DuprPredictor
 from shadow_reset_history import persist_shadow_run
 from dupr_shadow_calculator import simulate_shadow_reset
+
+PLAN_REFERENCE = ".cursor/plans/shadow_reset_calculator_860a546f.plan.md"
+
+
+def _print_model_warning() -> None:
+    print("=" * 78)
+    print("WARNING: reverse-engineered model confidence is currently LOW TRUST")
+    print(
+        "See docs/PREDICTOR_CONFIDENCE_JON_74.md for strict-metric evidence "
+        "(R^2 / Pearson / MAE)."
+    )
+    print("Use these results as directional estimates only.")
+    print("=" * 78)
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -111,7 +133,8 @@ def _print_result_table(payload: Dict[str, Any]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compute reset-style shadow rating over last N DUPR matches."
+        description="Compute reset-style shadow rating over last N DUPR matches.",
+        epilog=f"Plan reference: {PLAN_REFERENCE}",
     )
     parser.add_argument("--dupr-id", required=True, help="Player id or short DUPR id")
     parser.add_argument(
@@ -166,6 +189,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     load_dotenv()
+    _print_model_warning()
 
     dupr = DuprClient(verbose=False)
     username = os.getenv("DUPR_USERNAME")
