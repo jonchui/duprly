@@ -573,26 +573,27 @@ def _check_api_key(request):
     return True, None
 
 
-async def run_sse(host: str = "0.0.0.0", port: int = 8000):
-    """Run the MCP server over HTTP/SSE (for Poke.com and other remote clients)."""
+def build_duprly_mcp_starlette_app():
+    """
+    ASGI app for HTTP/SSE MCP (Vercel, uvicorn, or gateway upstream).
+    Routes: GET /health, GET /sse, POST /messages/*
+    """
     try:
         from mcp.server.sse import SseServerTransport
         from mcp.server.transport_security import TransportSecuritySettings
         from starlette.applications import Starlette
         from starlette.routing import Route, Mount
-        from starlette.responses import Response
-        import uvicorn
+        from starlette.responses import JSONResponse, Response
     except ImportError as e:
-        print(
-            "SSE server requires extra deps. Install with: pip install 'duprly-mcp[sse]'",
-            file=sys.stderr,
-        )
-        print(f"Import error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise ImportError(
+            "SSE server requires extra deps. Install with: pip install 'duprly-mcp[sse]'"
+        ) from e
 
-    # Disable DNS rebinding checks so localhost/0.0.0.0 work without 421/403
     security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
     sse_transport = SseServerTransport("/messages/", security_settings=security)
+
+    async def health(_request):
+        return JSONResponse({"status": "ok", "service": "duprly-mcp"})
 
     async def handle_sse(request):
         ok, err_response = _check_api_key(request)
@@ -608,6 +609,7 @@ async def run_sse(host: str = "0.0.0.0", port: int = 8000):
 
     async def messages_asgi_with_auth(scope, receive, send):
         from starlette.requests import Request
+
         request = Request(scope, receive, send)
         ok, err_response = _check_api_key(request)
         if not ok:
@@ -615,12 +617,28 @@ async def run_sse(host: str = "0.0.0.0", port: int = 8000):
             return
         await sse_transport.handle_post_message(scope, receive, send)
 
-    starlette_app = Starlette(
+    return Starlette(
         routes=[
+            Route("/health", endpoint=health, methods=["GET"]),
             Route("/sse", endpoint=handle_sse, methods=["GET"]),
             Mount("/messages/", app=messages_asgi_with_auth),
         ]
     )
+
+
+async def run_sse(host: str = "0.0.0.0", port: int = 8000):
+    """Run the MCP server over HTTP/SSE (for Poke.com and other remote clients)."""
+    try:
+        import uvicorn
+    except ImportError as e:
+        print(
+            "SSE server requires extra deps. Install with: pip install 'duprly-mcp[sse]'",
+            file=sys.stderr,
+        )
+        print(f"Import error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    starlette_app = build_duprly_mcp_starlette_app()
     config = uvicorn.Config(starlette_app, host=host, port=port)
     srv = uvicorn.Server(config)
     await srv.serve()

@@ -44,10 +44,20 @@ sse = [
     "sse-starlette>=1.6.0",
     "uvicorn>=0.22.0",
 ]
+postgres = [
+    "psycopg[binary]>=3.1.0",
+]
+# Vercel / cloud: SSE + Postgres (durable DB for cached local stats)
+cloud = [
+    "starlette>=0.27.0",
+    "sse-starlette>=1.6.0",
+    "uvicorn>=0.22.0",
+    "psycopg[binary]>=3.1.0",
+]
 keychain = [
     "keyring>=24.0.0",
 ]
 
 [tool.setuptools]
-py-modules = ["duprly_mcp", "dupr_client", "dupr_db", "dupr_resources", "duprly", "duprly_secrets"]
+py-modules = ["app", "duprly_mcp", "dupr_client", "dupr_db", "dupr_resources", "duprly", "duprly_secrets"]
 
