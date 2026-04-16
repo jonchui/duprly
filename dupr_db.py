@@ -1,6 +1,7 @@
 """
     Relational representation of DUPR Data
 """
+import os
 from datetime import date, datetime
 from typing import List, Optional
 from loguru import logger
@@ -15,10 +16,37 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 engine = None
 
 
+def _database_url_from_env() -> Optional[str]:
+    """Prefer DATABASE_URL (e.g. Neon/Postgres on Vercel); else local SQLite file."""
+    raw = os.getenv("DATABASE_URL", "").strip()
+    if not raw:
+        return None
+    # Vercel/Neon often ship postgres:// — SQLAlchemy 2 + psycopg3 use postgresql+psycopg://
+    if raw.startswith("postgres://"):
+        return "postgresql+psycopg://" + raw[len("postgres://") :]
+    if raw.startswith("postgresql://") and not raw.startswith("postgresql+"):
+        return "postgresql+psycopg://" + raw[len("postgresql://") :]
+    return raw
+
+
 def open_db():
     global engine
-    # engine = create_engine("sqlite+pysqlite:///:memory:", echo=False)
-    engine = create_engine("sqlite+pysqlite:///dupr.sqlite", echo=False)
+    url = _database_url_from_env()
+    if url:
+        engine = create_engine(
+            url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_size=2,
+            max_overflow=0,
+        )
+    else:
+        # Vercel serverless has no durable writable cwd; use /tmp for local SQLite.
+        if os.getenv("VERCEL"):
+            sqlite_path = os.path.join(os.getenv("TMPDIR", "/tmp"), "dupr.sqlite")
+            engine = create_engine(f"sqlite+pysqlite:///{sqlite_path}", echo=False)
+        else:
+            engine = create_engine("sqlite+pysqlite:///dupr.sqlite", echo=False)
     Base.metadata.create_all(engine)
     return engine
 

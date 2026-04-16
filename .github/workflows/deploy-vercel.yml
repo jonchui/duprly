@@ -1,0 +1,35 @@
+# Deploy duprly MCP (Python ASGI) to Vercel on every PR (preview) and main (production).
+# One-time: create a Vercel project linked to this GitHub repo, then add these repo secrets:
+#   VERCEL_TOKEN      — https://vercel.com/account/tokens
+#   VERCEL_ORG_ID     — Team Settings → General (or ~/.vercel/project.json after vercel link)
+#   VERCEL_PROJECT_ID — Project Settings → General
+#
+# Set env vars in Vercel (DATABASE_URL, DUPR_USERNAME, DUPR_PASSWORD, optional MCP_API_KEY).
+
+name: Deploy Vercel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./
+          github-comment: true
+          production: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
