@@ -309,15 +309,17 @@ def search(
     ).scalars().all()
     hits: List[PlayerSearchHit] = [_cached_to_hit(r) for r in cache_rows]
 
-    # Force live fallback for id-shaped queries so we always pull fresh data
-    # for "exact-lookup" intent — users pasting a DUPR id want the real row,
-    # not a stale cache hit.
+    # Force live fallback whenever the cache is thin OR the query smells like
+    # an exact-lookup (short/numeric DUPR id). Previously we gated live fallback
+    # behind `(" " in q and len(hits) < 5)` for multi-word queries, which meant
+    # single-word searches like "bryan" would silently stop at a stale cache
+    # result and never surface fresh DUPR hits (e.g. "Bryan Sullivan"). The
+    # fix: live-fallback any time the cache returned fewer hits than the
+    # requested limit (capped at 5 so we're not hammering DUPR for every
+    # incidental keystroke).
     id_shape = is_short_id or is_numeric_id
-    thin_cache = (
-        len(hits) == 0
-        or (" " in q and len(hits) < 5)
-        or id_shape
-    )
+    thin_cache_threshold = min(5, limit)
+    thin_cache = len(hits) < thin_cache_threshold or id_shape
 
     if live_fallback and thin_cache and _has_live_credentials():
         try:

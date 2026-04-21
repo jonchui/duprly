@@ -20,6 +20,34 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+def _resolve_tls_verify() -> "bool | str":
+    """
+    Return the value to pass as `requests.*(verify=...)`.
+
+    Controlled by `DUPR_TLS_VERIFY`:
+      - unset / "1" / "true" / "yes" → True (default, verify normally)
+      - "0" / "false" / "no" / "off"  → False (skip verification — dev only)
+      - any other value               → treated as a path to a CA bundle
+
+    Rationale: some local environments (corporate VPN, Zscaler, Little Snitch,
+    stale certifi bundles) intercept HTTPS with their own CA and break the
+    trust chain for `api.dupr.gg`. When that happens every `requests` call
+    raises `SSLCertVerificationError` *before* any bytes go out, which the
+    outer error handlers in `dupr_live.search` then swallow — the user sees
+    "no results" with zero diagnostic signal. This flag is a documented
+    escape hatch; production should leave it default.
+    """
+    raw = os.environ.get("DUPR_TLS_VERIFY")
+    if raw is None:
+        return True
+    lowered = raw.strip().lower()
+    if lowered in ("", "1", "true", "yes", "on"):
+        return True
+    if lowered in ("0", "false", "no", "off"):
+        return False
+    return raw  # treat as a CA bundle path
+
+
 class DuprClient(object):
 
     def __init__(
@@ -39,6 +67,21 @@ class DuprClient(object):
         self.refresh_token = None  # from login
         self.failed = False  # Strange way to return error, for now TBD
         self.verbose = verbose
+        # TLS verify behavior is env-driven so we can flip it without a code
+        # change when a machine's trust store is broken. See
+        # `_resolve_tls_verify` for the accepted values.
+        self._tls_verify = _resolve_tls_verify()
+        if self._tls_verify is False:
+            logger.warning(
+                "DuprClient: TLS verification DISABLED via DUPR_TLS_VERIFY — "
+                "dev-only escape hatch; do not use in production."
+            )
+            # Silence the noisy InsecureRequestWarning since the user opted in.
+            try:
+                import urllib3  # type: ignore
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            except Exception:
+                pass
         self.load_token()
 
     def load_token(self):
@@ -88,14 +131,37 @@ class DuprClient(object):
         It handles a saved access token, no need to re-login, or
         login and save token for next time.
 
-        This API curently just use an access token.
-        Not oauth style access/refresh token set.
+        This API currently just uses an access token (no refresh-token OAuth
+        dance). JWTs from `/auth/v1.0/login/` expire after ~30 days and DUPR
+        returns `401 {"status":"FAILURE","message":"Session expired"}` once
+        they lapse — at which point every subsequent request fails until we
+        re-login. We stash the creds so `dupr_get`/`dupr_post` can re-login
+        transparently when they see a 401, instead of surfacing the error
+        all the way up to the UI.
         """
+        self._username = username
+        self._password = password
         if self.access_token:
             return 0
         else:
             rc = self.login_user(username, password)
             return rc
+
+    def _relogin(self) -> int:
+        """Discard the cached token and re-run the login flow.
+
+        Returns the HTTP status code from the login call (200 = ok). Callers
+        typically invoke this after observing a 401 on an authed request.
+        Safe no-op returning 0 when we don't have stored creds (e.g. the
+        client was constructed manually without going through `auth_user`).
+        """
+        username = getattr(self, "_username", None)
+        password = getattr(self, "_password", None)
+        if not username or not password:
+            return 0
+        self.access_token = None
+        rc = self.login_user(username, password)
+        return rc
 
     def login_user(self, username: str, password: str) -> int:
         """Low level just do login (will need refresh after)"""
@@ -104,7 +170,17 @@ class DuprClient(object):
             "password": password,
         }
         logger.debug(f"login user: {username}")
-        r = requests.post(self.u("/auth/v1.0/login/"), json=body)
+        try:
+            r = requests.post(
+                self.u("/auth/v1.0/login/"), json=body, verify=self._tls_verify
+            )
+        except requests.exceptions.SSLError as exc:
+            logger.error(
+                f"login_user: TLS verification failed talking to DUPR ({exc}). "
+                f"Set DUPR_TLS_VERIFY=0 in your .env to bypass (dev only) or "
+                f"upgrade certifi / fix your trust store."
+            )
+            return 0
         logger.debug(f"login user: {r.status_code}")
         logger.debug(f"login user: {r.request.url}")
         if r.status_code == 200:
@@ -120,13 +196,18 @@ class DuprClient(object):
 
     def dupr_get(self, url, name: str = "") -> Response:
         logger.debug(f"GET: {name} : {url}")
-        r = requests.get(self.u(url), headers=self.headers())
+        r = requests.get(self.u(url), headers=self.headers(), verify=self._tls_verify)
         logger.debug(f"return: {r.status_code}")
-        if r.status_code == 403:
-            rc = self.refresh_user()
+        # 401 = "Session expired" (DUPR's signal to re-login). 403 = forbidden
+        # (keep the legacy refresh path). Both should trigger a fresh login
+        # against the stored creds and a single retry.
+        if r.status_code in (401, 403):
+            rc = self._relogin() if r.status_code == 401 else self.refresh_user()
             if rc == 200:
-                logger.debug(f"GET: {url}")
-                r = requests.get(self.u(url), headers=self.headers())
+                logger.debug(f"retry GET after relogin: {url}")
+                r = requests.get(
+                    self.u(url), headers=self.headers(), verify=self._tls_verify
+                )
                 logger.debug(f"return: {r.status_code}")
         self.failed = r.status_code != 200
         return r
@@ -134,13 +215,22 @@ class DuprClient(object):
     def dupr_post(self, url, json_data=None, name: str = "") -> Response:
         logger.debug(f"POST: {name} : {url}")
         headers = self.headers()
-        r = requests.post(self.u(url), headers=headers, json=json_data)
+        r = requests.post(
+            self.u(url), headers=headers, json=json_data, verify=self._tls_verify
+        )
         logger.debug(f"return: {r.status_code}")
-        if r.status_code == 403:
-            rc = self.refresh_user()
+        # See dupr_get for the 401/403 rationale — re-login on 401 ("Session
+        # expired") and retry the POST once with the same json body.
+        if r.status_code in (401, 403):
+            rc = self._relogin() if r.status_code == 401 else self.refresh_user()
             if rc == 200:
-                logger.debug(f"POST: {url}")
-                r = requests.post(self.u(url), headers=self.headers())
+                logger.debug(f"retry POST after relogin: {url}")
+                r = requests.post(
+                    self.u(url),
+                    headers=self.headers(),
+                    json=json_data,
+                    verify=self._tls_verify,
+                )
                 logger.debug(f"return: {r.status_code}")
         self.failed = r.status_code != 200
         return r
@@ -148,13 +238,20 @@ class DuprClient(object):
     def dupr_put(self, url, json_data=None, name: str = "") -> Response:
         logger.debug(f"PUT: {name} : {url}")
         headers = self.headers()
-        r = requests.put(self.u(url), headers=headers, json=json_data)
+        r = requests.put(
+            self.u(url), headers=headers, json=json_data, verify=self._tls_verify
+        )
         logger.debug(f"return: {r.status_code}")
         if r.status_code == 403:
             rc = self.refresh_user()
             if rc == 200:
                 logger.debug(f"PUT: {url}")
-                r = requests.put(self.u(url), headers=self.headers(), json=json_data)
+                r = requests.put(
+                    self.u(url),
+                    headers=self.headers(),
+                    json=json_data,
+                    verify=self._tls_verify,
+                )
                 logger.debug(f"return: {r.status_code}")
         self.failed = r.status_code != 200
         return r
@@ -372,31 +469,45 @@ class DuprClient(object):
         query: str,
         lat: float = 39.977763,
         lng: float = -105.1319296,
-        radius_meters: int = 16093400000,
+        radius_meters: int = 0,  # deprecated/ignored — kept for backward compat
         limit: int = 25,
         offset: int = 0,
     ) -> tuple[int, dict]:
         """
-        Search for players by name and location
+        Search for players by name and location.
+
+        Body matches DUPR's own dashboard (dashboard.dupr.com) request shape.
+        Previously we sent `filter.radiusInMeters` with a 10k-mile radius and
+        a top-level `address` field — DUPR's server treated these as hard
+        location filters and silently dropped out-of-area hits (e.g. searching
+        "bryan sullivan" returned nothing even though the dashboard found him).
+        The dashboard uses `filter.locationText: ""` to bias ranking by the
+        requester's coords without enforcing a radius, so we do the same.
 
         Args:
-            query: Player name to search for
-            lat: Latitude for location-based search
-            lng: Longitude for location-based search
-            radius_meters: Search radius in meters (default ~10,000 miles)
-            limit: Maximum number of results to return
-            offset: Offset for pagination
+            query: Player name (or DUPR id / short DUPR id) to search for.
+            lat / lng: Coords used for location-based *ranking* (not filtering).
+            radius_meters: deprecated — ignored. Kept as a kwarg so existing
+                callers that pass it don't break.
+            limit: Max number of results.
+            offset: Pagination offset.
 
         Returns:
             tuple: (status_code, search_results)
         """
+        del radius_meters  # intentionally unused — see docstring above.
         search_data = {
-            "filter": {"radiusInMeters": radius_meters, "lat": lat, "lng": lng},
-            "includeUnclaimedPlayers": True,
-            "address": {"latitude": lat, "longitude": lng},
-            "offset": offset,
             "limit": limit,
+            "offset": offset,
             "query": query,
+            "exclude": [],
+            "includeUnclaimedPlayers": True,
+            "filter": {
+                "lat": lat,
+                "lng": lng,
+                "rating": {"maxRating": None, "minRating": None},
+                "locationText": "",
+            },
         }
 
         r = self.dupr_post(
