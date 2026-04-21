@@ -29,4 +29,11 @@ match_rating_data_with_reliability.csv
 *~
 
 .venv/
+.venv-web/
 
+# Local SQLite for the web app (dev only)
+*.db
+duprly_web.db
+
+# Deploy key for VPS (private key only; add to GitHub Secrets as VPS_SSH_PRIVATE_KEY)
+.github/deploy-key

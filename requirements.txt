@@ -1,3 +1,14 @@
 numpy>=1.20.0
 scipy>=1.7.0
 scikit-learn>=1.0.0
+# Crawler & DB (for scripts and VPS)
+requests>=2.28.0
+loguru>=0.7.0
+sqlalchemy>=2.0.0
+python-dotenv>=1.0.0
+# Web app (api/ Vercel function also declares its own lean subset in api/requirements.txt)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
+pydantic>=2.0.0

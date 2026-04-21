@@ -1,0 +1,12 @@
+{% if players %}
+  <ul class="divide-y divide-slate-800 rounded-lg ring-1 ring-slate-800 bg-slate-950">
+    {% for p in players %}
+      <li class="px-3 py-2 hover:bg-slate-900 flex items-center justify-between gap-3">
+        <a href="/p/{{ p.id }}" class="text-emerald-300 hover:underline">{{ p.full_name }}</a>
+        <span class="text-xs text-slate-500 mono">seed {{ "%.2f"|format(p.seed_rating) }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="text-sm text-slate-500">No players match "{{ q }}".</p>
+{% endif %}
