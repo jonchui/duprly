@@ -56,13 +56,22 @@
   <div class="mt-5 flex flex-wrap items-end gap-4">
     <div>
       <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Match format</label>
-      <select name="target" class="bg-slate-950 ring-1 ring-slate-700 rounded px-3 py-2 text-sm">
+      <select name="target" id="match-target" class="bg-slate-950 ring-1 ring-slate-700 rounded px-3 py-2 text-sm">
         <option value="22" {% if not inputs or inputs.target == 22 %}selected{% endif %}>Best-of-3 to 11 (typical)</option>
         <option value="30" {% if inputs and inputs.target == 30 %}selected{% endif %}>Best-of-3 to 15</option>
       </select>
     </div>
     <button class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-4 py-2 rounded-lg text-sm">
-      Forecast
+      Forecast (local model)
+    </button>
+    <button
+      type="button"
+      id="btn-dupr-official"
+      disabled
+      class="bg-sky-500 text-slate-950 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed font-semibold px-4 py-2 rounded-lg text-sm"
+      title="Enabled once all 4 slots are filled via DUPR search."
+    >
+      Get DUPR official forecast
     </button>
     <a href="/reset" class="text-sm text-slate-400 hover:text-slate-200 ml-auto">
       Want a shadow-reset simulation? → <span class="underline">reset sim</span>
@@ -79,4 +88,148 @@
 </div>
 
 {% include "partials/fill_slot_js.html" %}
+
+<script>
+  // "Get DUPR official forecast" CTA.
+  //
+  // Enabled only when all 4 slots carry a numeric DUPR id (set by fillSlot()
+  // when a search result is clicked). Hitting it POSTs /api/dupr/forecast
+  // with the two teams and renders a minimal summary table.
+  (function () {
+    const btn = document.getElementById('btn-dupr-official');
+    if (!btn) return;
+    const results = document.getElementById('forecast-results');
+    const targetSelect = document.getElementById('match-target');
+
+    function duprIdFor(slot) {
+      const el = document.getElementById('duprid-' + slot);
+      const v = (el && el.value) ? el.value.trim() : '';
+      // DUPR forecast API needs numeric long ids; reject short ids / names.
+      return /^\d{6,}$/.test(v) ? v : '';
+    }
+
+    function allFour() {
+      return [1, 2, 3, 4].every(slot => duprIdFor(slot));
+    }
+
+    function refreshButtonState() {
+      btn.disabled = !allFour();
+      btn.title = btn.disabled
+        ? 'Fill all 4 slots via DUPR search (need numeric ids — short ids like GXWLNV don\'t work on DUPR\'s forecaster).'
+        : 'Fetch DUPR\'s own forecaster output for this matchup.';
+    }
+
+    document.addEventListener('duprly:slot-filled', refreshButtonState);
+    refreshButtonState();
+
+    btn.addEventListener('click', async function () {
+      if (btn.disabled) return;
+      const winningScore = targetSelect && targetSelect.value === '30' ? 15 : 11;
+      const payload = {
+        teams: [
+          { player1_id: +duprIdFor(1), player2_id: +duprIdFor(2) },
+          { player1_id: +duprIdFor(3), player2_id: +duprIdFor(4) }
+        ],
+        winning_score: winningScore,
+        event_format: 'DOUBLES',
+        match_source: 'CLUB',
+        match_type: 'SIDE_ONLY',
+        game_count: 1
+      };
+      btn.disabled = true;
+      btn.textContent = 'Asking DUPR…';
+      try {
+        let res = await fetch('/api/dupr/forecast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        // 503 usually means no DUPR_USERNAME/PASSWORD locally — retry against
+        // the fixture-backed path so the UI still demos something useful.
+        let data = await res.json();
+        let usedFixture = false;
+        if (res.status === 503) {
+          usedFixture = true;
+          const retry = await fetch('/api/dupr/forecast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({}, payload, { use_fixtures: true }))
+          });
+          if (!retry.ok) throw new Error(data.detail || 'DUPR unavailable and no fixture for this winningScore');
+          data = await retry.json();
+        } else if (!res.ok) {
+          throw new Error((data && data.detail) || ('HTTP ' + res.status));
+        }
+        renderDuprOfficial(data, usedFixture || data.source === 'fixture');
+      } catch (err) {
+        results.innerHTML = '<div class="bg-rose-900/40 text-rose-200 ring-1 ring-rose-700 rounded-lg px-4 py-3 text-sm">'
+          + 'DUPR official forecast failed: ' + (err && err.message ? err.message : err) + '</div>';
+      } finally {
+        btn.textContent = 'Get DUPR official forecast';
+        refreshButtonState();
+      }
+    });
+
+    function pct(n) { return n == null ? '—' : Math.round(n) + '%'; }
+    function fmtDelta(v) {
+      if (v == null) return '—';
+      const s = v >= 0 ? '+' : '';
+      return '<span class="' + (v >= 0 ? 'text-emerald-400' : 'text-rose-400') + '">'
+        + s + v.toFixed(4) + '</span>';
+    }
+
+    function renderDuprOfficial(data, isFixture) {
+      const ws = data.winning_score;
+      const teams = [data.team_a, data.team_b];
+      const headerCells = Array.from({ length: ws }, (_, i) => '<th class="px-2 py-1 text-right mono text-xs">' + i + '</th>').join('');
+
+      const rows = teams.map(function (t, idx) {
+        const label = 'Team ' + (idx === 0 ? 'A' : 'B')
+          + ' <span class="text-slate-500">· ' + t.player1_id
+          + (t.player2_id ? ' + ' + t.player2_id : '') + '</span>';
+        const impactCells = t.rating_impacts.map(v =>
+          '<td class="px-2 py-1 text-right mono text-xs">' + fmtDelta(v) + '</td>'
+        ).join('');
+        return '<tr class="border-t border-slate-800">'
+          + '<td class="px-2 py-1 text-sm">' + label + '</td>'
+          + '<td class="px-2 py-1 text-right mono text-xs">' + pct(t.win_probability_pct) + '</td>'
+          + '<td class="px-2 py-1 text-right mono text-xs">' + (t.predicted_losing_score == null ? '—' : t.predicted_losing_score) + '</td>'
+          + impactCells
+          + '</tr>';
+      }).join('');
+
+      results.innerHTML =
+        '<div class="bg-slate-900 ring-1 ring-sky-700/60 rounded-xl p-4 overflow-x-auto">'
+          + '<div class="flex items-baseline gap-3 mb-3">'
+            + '<h2 class="text-lg font-semibold text-sky-300">DUPR official forecast</h2>'
+            + '<span class="text-xs text-slate-500">'
+              + 'to ' + ws + ' · '
+              + (isFixture
+                  ? 'using Proxyman fixture (set DUPR_USERNAME/PASSWORD for live)'
+                  : 'live from api.dupr.gg')
+            + '</span>'
+          + '</div>'
+          + '<table class="w-full">'
+            + '<thead class="text-slate-500 text-[10px] uppercase tracking-wider">'
+              + '<tr>'
+                + '<th class="text-left px-2 py-1">Team</th>'
+                + '<th class="text-right px-2 py-1">Win %</th>'
+                + '<th class="text-right px-2 py-1">Pred loser games</th>'
+                + '<th class="text-right px-2 py-1 border-l border-slate-800" colspan="' + ws + '">Rating impact if WON and loser scored…</th>'
+              + '</tr>'
+              + '<tr>'
+                + '<th colspan="3"></th>'
+                + headerCells
+              + '</tr>'
+            + '</thead>'
+            + '<tbody>' + rows + '</tbody>'
+          + '</table>'
+          + '<p class="text-xs text-slate-500 mt-3">'
+            + 'Rating impact = change to each team\'s DUPR if they WIN with the given losing-team score. '
+            + 'DUPR returns per-team deltas; per-player splits depend on each player\'s reliability and require a separate call.'
+          + '</p>'
+        + '</div>';
+    }
+  })();
+</script>
 {% endblock %}
