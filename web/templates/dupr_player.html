@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{#
+  DUPR-style player profile page.
+
+  Route: /dupr/player/<dupr_id>
+
+  Mirrors DUPR's `dashboard.dupr.com/dashboard/player/<id>` layout: avatar +
+  name header, doubles/singles rating tiles, location/age metadata, and a
+  reverse-chronological match history.
+
+  Template vars (see pages.py::dupr_player_page):
+    player          — PlayerSearchHit | None (cached + optionally refreshed)
+    dupr_id         — str (requested id, may not match player.dupr_id casing)
+    matches         — list[dict]: output of _summarize_dupr_matches. Empty
+                      when we had no live creds or DUPR returned nothing.
+    live_error      — str | None; best-effort error message from live fetch.
+                      We render whatever we have + surface this as a note.
+    has_live_creds  — bool. When False we show a subtle hint that we're
+                      serving from the local cache only.
+#}
+{% block title %}{{ (player.full_name if player else dupr_id) }} · DUPR profile · duprly{% endblock %}
+
+{% block content %}
+{% set name = player.full_name if player else None %}
+{% set avatar = player.image_url if player else None %}
+{% set short_id = player.short_dupr_id if player else None %}
+{% set meta_bits = [] %}
+{% if player and player.age %}{% set _ = meta_bits.append(player.age|string ~ " yrs") %}{% endif %}
+{% if player and player.gender %}{% set _ = meta_bits.append(player.gender[:1]|upper) %}{% endif %}
+{% if player and player.short_address %}{% set _ = meta_bits.append(player.short_address) %}{% endif %}
+
+<div class="flex items-center justify-between gap-3 mb-6 flex-wrap">
+  <a href="/forecast" class="text-sm text-slate-400 hover:text-slate-200">
+    ← Back to forecast
+  </a>
+  <a
+    href="https://dashboard.dupr.com/dashboard/player/{{ dupr_id }}"
+    target="_blank"
+    rel="noopener"
+    class="text-xs text-slate-500 hover:text-slate-300 mono"
+  >Open on DUPR ↗</a>
+</div>
+
+{# Header: avatar + name + meta. Mirrors the top banner on DUPR's profile. #}
+<section class="rounded-3xl bg-slate-900 ring-1 ring-slate-800 p-6 mb-6">
+  <div class="flex items-start gap-5 flex-wrap">
+    <div class="shrink-0">
+      {% if avatar %}
+        <img src="{{ avatar }}" alt="" class="w-24 h-24 rounded-full object-cover ring-2 ring-slate-700" />
+      {% else %}
+        <div class="w-24 h-24 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 text-3xl font-bold ring-2 ring-slate-700">
+          {% if name %}{{ name[:1]|upper }}{% else %}?{% endif %}
+        </div>
+      {% endif %}
+    </div>
+    <div class="min-w-0 flex-1">
+      <h1 class="text-2xl md:text-3xl font-bold text-slate-100 truncate">
+        {{ name or ("DUPR " ~ dupr_id) }}
+      </h1>
+      {% if meta_bits %}
+        <div class="text-slate-400 text-sm mt-1">
+          {{ meta_bits|join(" · ") }}
+        </div>
+      {% endif %}
+      <div class="mt-3 flex items-center gap-3 flex-wrap text-xs text-slate-500">
+        <span class="mono text-slate-400">DUPR id: {{ player.dupr_id if player else dupr_id }}</span>
+        {% if short_id %}
+          <span class="text-slate-600">·</span>
+          <span class="mono text-slate-500">{{ short_id }}</span>
+        {% endif %}
+        {% if player and player.stale %}
+          <span class="text-slate-600">·</span>
+          <span class="text-amber-300 bg-amber-500/10 ring-1 ring-amber-500/30 px-2 py-0.5 rounded-full">cache stale</span>
+        {% endif %}
+        {% if not has_live_creds %}
+          <span class="text-slate-600">·</span>
+          <span class="text-slate-500" title="Set DUPR_USERNAME/DUPR_PASSWORD to pull live data">cache-only</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+
+{# Rating tiles. Doubles is first because DUPR's forecast uses doubles. #}
+<section class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
+  <div class="rounded-2xl p-5 bg-slate-900 ring-1 ring-slate-800">
+    <div class="flex items-center justify-between">
+      <div class="text-xs uppercase tracking-wider text-slate-400">Doubles</div>
+      {% if player and player.doubles_reliability is not none %}
+        <div class="text-[10px] text-slate-500 mono">rel {{ "%.0f"|format(player.doubles_reliability) }}%</div>
+      {% endif %}
+    </div>
+    <div class="mt-2 text-3xl font-bold mono text-slate-100">
+      {% if player and player.doubles is not none %}
+        {{ "%.3f"|format(player.doubles) }}
+      {% else %}
+        <span class="text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="rounded-2xl p-5 bg-slate-900 ring-1 ring-slate-800">
+    <div class="text-xs uppercase tracking-wider text-slate-400">Singles</div>
+    <div class="mt-2 text-3xl font-bold mono text-slate-100">
+      {% if player and player.singles is not none %}
+        {{ "%.3f"|format(player.singles) }}
+      {% else %}
+        <span class="text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+{% if live_error %}
+  <div class="mb-6 p-3 rounded-lg bg-amber-500/5 ring-1 ring-amber-500/20 text-xs text-amber-300">
+    <span class="font-semibold">Live DUPR note:</span>
+    <span class="mono">{{ live_error }}</span>
+  </div>
+{% endif %}
+
+<section>
+  <div class="flex items-baseline justify-between mb-3">
+    <h2 class="text-lg font-semibold text-slate-100">Recent matches</h2>
+    {% if matches %}
+      <div class="text-xs text-slate-500">showing last {{ matches|length }}</div>
+    {% endif %}
+  </div>
+
+  {% if matches %}
+    <div class="space-y-3">
+      {% for m in matches %}
+        {#
+          Per-match row. `target_team_index` is the team this player was on
+          (0 or 1); used to flag the "you / teammate" side in the UI.
+        #}
+        {% set target_idx = m.target_team_index %}
+        {% set won = m.is_win %}
+        <div class="rounded-2xl bg-slate-900 ring-1 ring-slate-800 p-4">
+          <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <div class="flex items-center gap-2 text-xs">
+              {% if won %}
+                <span class="font-semibold text-emerald-300 bg-emerald-500/10 ring-1 ring-emerald-500/30 px-2 py-0.5 rounded-full">Win</span>
+              {% elif target_idx is not none %}
+                <span class="font-semibold text-rose-300 bg-rose-500/10 ring-1 ring-rose-500/30 px-2 py-0.5 rounded-full">Loss</span>
+              {% else %}
+                <span class="font-semibold text-slate-400 bg-slate-800 ring-1 ring-slate-700 px-2 py-0.5 rounded-full">Match</span>
+              {% endif %}
+              {% if m.event_date %}
+                <span class="text-slate-400 mono">{{ m.event_date }}</span>
+              {% endif %}
+              {% if m.venue %}
+                <span class="text-slate-600">·</span>
+                <span class="text-slate-500 truncate">{{ m.venue }}</span>
+              {% endif %}
+            </div>
+            <div class="mono text-[10px] text-slate-600">id: {{ m.match_id or "—" }}</div>
+          </div>
+
+          {# Teams grid. 2 rows × [players | score], highlight the team this
+             player was on so the page reads like DUPR's native history list. #}
+          <div class="space-y-2">
+            {% for t in m.teams %}
+              {% set is_mine = target_idx is not none and loop.index0 == target_idx %}
+              <div class="grid grid-cols-[1fr_auto] items-center gap-3 {% if is_mine %}bg-slate-950/60 ring-1 ring-slate-800 rounded-lg p-2 -mx-1{% endif %}">
+                <div class="flex items-center gap-3 min-w-0 flex-wrap">
+                  {% for p in t.players %}
+                    {% set p_href = "/dupr/player/" ~ p.dupr_id if p.dupr_id else None %}
+                    <div class="flex items-center gap-2 min-w-0">
+                      {% if p.image_url %}
+                        {% if p_href %}<a href="{{ p_href }}" class="shrink-0">{% endif %}
+                          <img src="{{ p.image_url }}" alt="" class="w-7 h-7 rounded-full object-cover ring-1 ring-slate-700" loading="lazy" />
+                        {% if p_href %}</a>{% endif %}
+                      {% else %}
+                        <div class="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 text-xs font-semibold shrink-0">
+                          {{ (p.name or "?")[:1]|upper }}
+                        </div>
+                      {% endif %}
+                      {% if p_href %}
+                        <a href="{{ p_href }}" class="text-sm text-slate-200 hover:text-emerald-300 hover:underline truncate">{{ p.name }}</a>
+                      {% else %}
+                        <span class="text-sm text-slate-300 truncate">{{ p.name }}</span>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+                <div class="mono text-xl {% if t.winner %}text-slate-100 font-bold{% else %}text-slate-500{% endif %}">
+                  {% if t.score is not none %}{{ t.score }}{% else %}—{% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="rounded-2xl bg-slate-900 ring-1 ring-slate-800 p-6 text-sm text-slate-400">
+      {% if has_live_creds %}
+        No match history returned from DUPR for this player.
+        {% if live_error %}<span class="block mt-1 text-amber-300 text-xs mono">{{ live_error }}</span>{% endif %}
+      {% else %}
+        Match history requires live DUPR credentials on the server
+        (<span class="mono">DUPR_USERNAME</span> / <span class="mono">DUPR_PASSWORD</span>).
+        Showing cached profile only.
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

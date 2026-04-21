@@ -21,15 +21,6 @@
     if (ratingInput && rating != null && rating !== 0) ratingInput.value = Number(rating).toFixed(2);
     if (relInput && reliability != null) relInput.value = Math.round(reliability);
     if (searchInput) searchInput.value = fullName || '';
-    if (label) {
-      const locBits = [
-        m.age ? String(m.age) : null,
-        m.gender ? String(m.gender).charAt(0).toUpperCase() : null,
-        m.shortAddress || null,
-      ].filter(Boolean);
-      const metaLine = locBits.length ? ' <span class="text-slate-600">· ' + locBits.join(' · ') + '</span>' : '';
-      label.innerHTML = '<span class="text-emerald-300">● </span>' + (fullName || '') + ' <span class="text-slate-600">· ' + duprId + '</span>' + metaLine;
-    }
     if (resultsBox) resultsBox.innerHTML = '';
     if (idInput) idInput.value = duprId || '';
     if (nameInput) nameInput.value = fullName || '';
@@ -37,6 +28,26 @@
     if (genderInput) genderInput.value = m.gender || '';
     if (locInput) locInput.value = m.shortAddress || '';
     if (imgInput) imgInput.value = m.imageUrl || '';
+    // Label mirrors the server-rendered version in player_slot.html: a link
+    // to /dupr/player/<id> with "[●] Name · <dupr id> · <age · M · location>".
+    // Keeping the two renderers aligned means a page reload from a shared
+    // /forecast/<id>/<id>/<id>/<id> URL looks identical to the JS-filled
+    // state that produced that URL.
+    if (label) {
+      if (duprId) {
+        const locBits = [
+          m.age ? String(m.age) : null,
+          m.gender ? String(m.gender).charAt(0).toUpperCase() : null,
+          m.shortAddress || null,
+        ].filter(Boolean);
+        const metaLine = locBits.length ? ' <span class="text-slate-600">· ' + locBits.join(' · ') + '</span>' : '';
+        const inner = '<span class="text-emerald-300">●</span> ' + (fullName || '')
+          + ' <span class="text-slate-600">· ' + duprId + '</span>' + metaLine;
+        label.innerHTML = '<a href="/dupr/player/' + encodeURIComponent(duprId) + '" class="hover:text-emerald-300 hover:underline">' + inner + '</a>';
+      } else {
+        label.innerHTML = '';
+      }
+    }
     // Let listeners (e.g. /forecast DUPR-official CTA, score-picker card) re-evaluate.
     document.dispatchEvent(new CustomEvent('duprly:slot-filled', {
       detail: { slot, duprId, fullName, rating, reliability, meta: m },

@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{#
+  /players — dedicated player search tab.
+
+  Mirrors DUPR's own "Players" surface: big search input, results list,
+  click through to /dupr/player/<id>.
+
+  The search query lives in the URL (?q=…) — typing updates history.replaceState
+  so every keystroke produces a shareable URL, and the initial server render
+  pre-populates results when the URL already has ?q=… on first paint.
+
+  Template vars:
+    q               — current query (may be "").
+    hits            — list[PlayerSearchHit] from dupr_live.search(). Empty
+                      when q is shorter than 2 chars.
+    live_available  — bool. When False we show a "cache-only" subtitle so
+                      the user knows why matches might be stale.
+#}
+{% block title %}Players · duprly{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl md:text-3xl font-bold">Players</h1>
+    <p class="text-slate-400 text-sm">
+      Search DUPR by name, id, or
+      <span class="mono">dashboard.dupr.com</span> URL.
+      {% if not live_available %}
+        <span class="text-slate-500 ml-1">(cache-only — set <span class="mono">DUPR_USERNAME</span>/<span class="mono">DUPR_PASSWORD</span> for live results)</span>
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="rounded-2xl bg-slate-900 ring-1 ring-slate-800 p-4 mb-6">
+  <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1" for="players-q">
+    Search
+  </label>
+  <div class="relative">
+    <input
+      id="players-q"
+      type="text"
+      name="q"
+      value="{{ q }}"
+      placeholder="Name, DUPR id (4405492894), or dashboard URL…"
+      class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded-lg px-4 py-3 text-base"
+      autocomplete="off"
+      autofocus
+      hx-get="/dupr/search"
+      hx-trigger="input changed delay:300ms, keyup[key==='Enter']"
+      hx-target="#players-results-live"
+      hx-vals='{"slot": 0}'
+      hx-indicator="#players-spinner"
+    />
+    <div id="players-spinner" class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400 pointer-events-none">
+      searching DUPR…
+    </div>
+  </div>
+
+  {# Live HTMX drop — reuses the `partials/dupr_search.html` partial with
+     slot=0. fillSlot() is a no-op on this page (no slot inputs), but the
+     partial also renders profile links we intercept via JS below so a
+     click always goes to /dupr/player/<id>. #}
+  <div id="players-results-live" class="relative mt-2"></div>
+</div>
+
+{# Initial server-rendered results so a pasted ?q=… URL has content on
+   first paint. HTMX overwrites these once the user types. #}
+<div id="players-results-initial">
+  {% if q and q|length >= 2 %}
+    {% if hits %}
+      <ul class="rounded-2xl bg-slate-900 ring-1 ring-slate-800 divide-y divide-slate-800">
+        {% for h in hits %}
+          {% set meta_bits = [] %}
+          {% if h.age %}{% set _ = meta_bits.append(h.age|string) %}{% endif %}
+          {% if h.gender %}{% set _ = meta_bits.append(h.gender[:1]|upper) %}{% endif %}
+          {% if h.short_address %}{% set _ = meta_bits.append(h.short_address) %}{% endif %}
+          <li>
+            <a
+              href="/dupr/player/{{ h.dupr_id }}"
+              class="flex items-center gap-3 px-4 py-3 hover:bg-slate-800/60 transition"
+            >
+              {% if h.image_url %}
+                <img src="{{ h.image_url }}" alt="" class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-700 shrink-0" loading="lazy" />
+              {% else %}
+                <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 text-sm font-semibold ring-1 ring-slate-700 shrink-0">
+                  {{ (h.full_name or "?")[:1]|upper }}
+                </div>
+              {% endif %}
+              <div class="min-w-0 flex-1">
+                <div class="text-slate-100 font-medium truncate">{{ h.full_name }}</div>
+                <div class="text-xs text-slate-500 truncate">
+                  <span class="mono">{{ h.dupr_id }}</span>
+                  {% if meta_bits %}
+                    <span class="text-slate-600">· {{ meta_bits|join(" · ") }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="shrink-0 text-right text-xs mono text-slate-400">
+                {% if h.doubles is not none %}
+                  <div class="text-slate-200">{{ "%.3f"|format(h.doubles) }}</div>
+                  <div class="text-[10px] text-slate-500">doubles</div>
+                {% else %}
+                  <span class="text-slate-600">—</span>
+                {% endif %}
+              </div>
+              <svg viewBox="0 0 24 24" class="w-4 h-4 text-slate-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="rounded-2xl bg-slate-900 ring-1 ring-slate-800 p-6 text-sm text-slate-400">
+        No players found for <span class="mono text-slate-200">{{ q }}</span>.
+        {% if not live_available %}
+          <span class="block text-xs text-slate-500 mt-1">
+            Only cached players can match — add DUPR creds on the server for live search.
+          </span>
+        {% endif %}
+      </div>
+    {% endif %}
+  {% elif not q %}
+    <div class="text-slate-500 text-sm px-2">
+      Start typing to search.
+    </div>
+  {% else %}
+    <div class="text-slate-500 text-xs px-2">
+      Keep typing — minimum 2 characters.
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  // URL ↔ search-input sync. Replace history state on every input so the
+  // URL is always "the current search" — paste it anywhere and it opens
+  // to the same hits.
+  //
+  // We also hide the first-paint server results once HTMX has produced
+  // live ones, so the user isn't looking at two stacked result lists.
+  (function () {
+    const input = document.getElementById('players-q');
+    const initial = document.getElementById('players-results-initial');
+    const live = document.getElementById('players-results-live');
+    if (!input) return;
+
+    function syncUrl() {
+      const q = input.value || '';
+      const qs = new URLSearchParams();
+      if (q.trim()) qs.set('q', q.trim());
+      const str = qs.toString();
+      const next = '/players' + (str ? '?' + str : '');
+      if (next !== (location.pathname + location.search)) {
+        try { history.replaceState(null, '', next); } catch (_) {}
+      }
+    }
+
+    input.addEventListener('input', syncUrl);
+
+    // When HTMX lands a result set, hide the server-rendered initial list
+    // so we never double-render.
+    if (live) {
+      const obs = new MutationObserver(() => {
+        if (live.innerHTML.trim() && initial) initial.style.display = 'none';
+        if (!live.innerHTML.trim() && initial) initial.style.display = '';
+      });
+      obs.observe(live, { childList: true, subtree: true });
+    }
+
+    // The `/dupr/search` HTMX partial is built for the forecast slot
+    // pickers: clicking a result calls `fillSlot(slot, ...)`. On this page
+    // we want a click to navigate to the profile instead. We hijack clicks
+    // on result rows inside #players-results-live and extract the DUPR id
+    // from the `fillSlot(slot, '<id>', ...)` onclick attribute.
+    document.addEventListener('click', (e) => {
+      if (!live || !live.contains(e.target)) return;
+      const row = e.target.closest('[onclick*="fillSlot("]');
+      if (!row) return;
+      e.preventDefault();
+      const attr = row.getAttribute('onclick') || '';
+      // fillSlot(slot, 'dupr_id', 'name', ...) — DUPR ids in this app
+      // are always digits, but quote style may vary between builds.
+      const m = attr.match(/fillSlot\(\s*\d+\s*,\s*['"]([^'"]+)['"]/);
+      if (m && m[1]) {
+        window.location.assign('/dupr/player/' + encodeURIComponent(m[1]));
+      }
+    });
+  })();
+</script>
+{% endblock %}
