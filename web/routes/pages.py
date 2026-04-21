@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -1077,19 +1077,121 @@ def goal_submit(
 
 # ---- Shadow Reset Simulator --------------------------------------------------
 
+
+def _reset_share_url(
+    dupr_id: Optional[str],
+    cutoff_date: Optional[str],
+    baseline_rating: Optional[float],
+) -> Optional[str]:
+    """Build the canonical `/reset?…` share URL for a sim. Returns None when
+    we don't have a DUPR id to share against.
+
+    Only non-default fields get serialized so shared links stay short — a
+    bare `/reset?dupr_id=X` implies today's default cutoff and the
+    server-computed baseline.
+    """
+    if not dupr_id:
+        return None
+    from urllib.parse import urlencode
+
+    params: Dict[str, str] = {"dupr_id": str(dupr_id).strip()}
+    default_cutoff_iso = shadow_svc.DEFAULT_CUTOFF.isoformat()
+    if cutoff_date and cutoff_date != default_cutoff_iso:
+        params["cutoff_date"] = cutoff_date
+    if baseline_rating not in (None, ""):
+        try:
+            params["baseline_rating"] = f"{float(baseline_rating):.3f}"
+        except (TypeError, ValueError):
+            pass
+    return "/reset?" + urlencode(params)
+
+
+def _run_reset_sim(
+    dupr_id: Optional[str],
+    cutoff_date: Optional[str],
+    baseline_rating: Optional[float],
+) -> Dict[str, Any]:
+    """Shared backend for GET (?dupr_id=…) and POST (form) /reset handlers.
+
+    Returns a dict with `summary`, `inputs`, `error`, `default_cutoff`,
+    `share_url` — the exact context shape consumed by both `reset.html`
+    and `partials/reset_results.html`.
+    """
+    from datetime import date as _date
+
+    default_cutoff_iso = shadow_svc.DEFAULT_CUTOFF.isoformat()
+    cutoff = None
+    error: Optional[str] = None
+    summary = None
+    resolved_dupr_id = (dupr_id or "").strip() or None
+
+    if cutoff_date:
+        cutoff_date = cutoff_date.strip()
+    if cutoff_date:
+        try:
+            cutoff = _date.fromisoformat(cutoff_date)
+        except ValueError:
+            error = f"Invalid cutoff date: {cutoff_date!r} (expected YYYY-MM-DD)"
+
+    if error is None and resolved_dupr_id:
+        try:
+            summary = shadow_svc.simulate(
+                dupr_id=resolved_dupr_id,
+                baseline_rating=baseline_rating,
+                cutoff=cutoff,
+            )
+        except shadow_svc.ShadowUnavailable as e:
+            error = str(e)
+        except Exception as e:  # keep the form rendering no matter what
+            error = f"Simulation failed: {e}"
+
+    inputs = {
+        "dupr_id": resolved_dupr_id or "",
+        "cutoff_date": cutoff_date or default_cutoff_iso,
+        "baseline_rating": baseline_rating,
+    }
+    return {
+        "summary": summary,
+        "inputs": inputs,
+        "error": error,
+        "default_cutoff": default_cutoff_iso,
+        "share_url": _reset_share_url(resolved_dupr_id, cutoff_date, baseline_rating)
+        if summary
+        else None,
+        "is_htmx": False,
+    }
+
+
 @router.get("/reset", response_class=HTMLResponse)
-def reset_page(request: Request):
-    """Shadow-reset simulator form."""
-    return _tr(
-        request,
-        "reset.html",
-        {
-            "summary": None,
-            "inputs": None,
-            "error": None,
-            "default_cutoff": shadow_svc.DEFAULT_CUTOFF.isoformat(),
-        },
-    )
+def reset_page(
+    request: Request,
+    dupr_id: Optional[str] = None,
+    cutoff_date: Optional[str] = None,
+    baseline_rating: Optional[float] = None,
+):
+    """Shadow-reset simulator.
+
+    - No query params → renders the empty form.
+    - With `?dupr_id=...` (plus optional `cutoff_date`, `baseline_rating`)
+      → runs the sim server-side and renders the full page with results
+      already populated. This is also the canonical shareable URL shape
+      surfaced by the "share this sim" link in the results UI.
+    """
+    if not dupr_id:
+        return _tr(
+            request,
+            "reset.html",
+            {
+                "summary": None,
+                "inputs": None,
+                "error": None,
+                "default_cutoff": shadow_svc.DEFAULT_CUTOFF.isoformat(),
+                "share_url": None,
+                "is_htmx": False,
+            },
+        )
+    ctx = _run_reset_sim(dupr_id, cutoff_date, baseline_rating)
+    return _tr(request, "reset.html", ctx)
 
 
 @router.post("/reset", response_class=HTMLResponse)
@@ -1099,41 +1201,18 @@ def reset_submit(
     cutoff_date: Optional[str] = Form(default=None),
     baseline_rating: Optional[float] = Form(default=None),
 ):
-    from datetime import date as _date
-
-    cutoff = None
-    error: Optional[str] = None
-    summary = None
-    if cutoff_date:
-        try:
-            cutoff = _date.fromisoformat(cutoff_date.strip())
-        except ValueError:
-            error = f"Invalid cutoff date: {cutoff_date!r} (expected YYYY-MM-DD)"
-    if error is None:
-        try:
-            summary = shadow_svc.simulate(
-                dupr_id=dupr_id.strip(),
-                baseline_rating=baseline_rating,
-                cutoff=cutoff,
-            )
-        except shadow_svc.ShadowUnavailable as e:
-            error = str(e)
-        except Exception as e:  # catch-all so the form always renders
-            error = f"Simulation failed: {e}"
-
-    inputs = {
-        "dupr_id": dupr_id,
-        "cutoff_date": cutoff_date or shadow_svc.DEFAULT_CUTOFF.isoformat(),
-        "baseline_rating": baseline_rating,
-    }
-    template = "partials/reset_results.html" if request.headers.get("HX-Request") else "reset.html"
-    return _tr(
-        request,
-        template,
-        {
-            "summary": summary,
-            "inputs": inputs,
-            "error": error,
-            "default_cutoff": shadow_svc.DEFAULT_CUTOFF.isoformat(),
-        },
-    )
+    ctx = _run_reset_sim(dupr_id, cutoff_date, baseline_rating)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    # `is_htmx` tells `partials/reset_results.html` whether to emit the OOB
+    # input that syncs the form's baseline-rating field. It's only useful on
+    # HTMX submits; on full-page GETs the form input is already populated
+    # from the same `summary` object so the OOB twin would be a stray orphan.
+    ctx["is_htmx"] = is_htmx
+    template = "partials/reset_results.html" if is_htmx else "reset.html"
+    response = _tr(request, template, ctx)
+    # HTMX: push the share URL into the browser history so refreshing the
+    # page (or copy-pasting the URL) replays the same sim without needing
+    # to re-fill the form.
+    if is_htmx and ctx.get("share_url"):
+        response.headers["HX-Push-Url"] = ctx["share_url"]
+    return response

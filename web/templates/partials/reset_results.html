@@ -5,12 +5,14 @@
 </div>
 {% elif summary %}
 {#
-  Out-of-band HTMX swap: when the user hasn't typed a baseline rating, we
-  auto-fill the "Baseline rating (optional)" input with whatever we resolved
-  the baseline to (earliest eligible match's pre-rating). `hx-swap-oob` on
-  a second top-level element is picked up by htmx and targets the input by
-  id. We only overwrite when empty so a user's manual entry sticks.
+  Out-of-band HTMX swap: when HTMX posts the form, the server returns this
+  partial plus a sibling input carrying `hx-swap-oob="outerHTML"` that
+  replaces `#baseline-rating-input` in the form. We ONLY emit it on HTMX
+  POSTs (is_htmx=true) — on a full-page GET render (?dupr_id=…), the form's
+  own baseline-rating-input is already server-populated, so emitting the
+  OOB twin would render as a stray orphan input above the results.
 #}
+{% if is_htmx %}
 <input
   id="baseline-rating-input"
   type="number"
@@ -24,6 +26,7 @@
   data-auto-fill-baseline="{{ '%.3f'|format(summary.baseline_rating) }}"
   hx-swap-oob="outerHTML"
 />
+{% endif %}
 
 <section class="mb-6">
   <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
@@ -37,6 +40,42 @@
       / considered <span class="mono">{{ summary.matches_since_cutoff }}</span>
     </div>
   </div>
+
+  {% if share_url %}
+  {#
+    Share widget: hidden input holds the full URL so the copy button can
+    grab it via `select()`. The button flips its label to "Copied!" on
+    click. `data-share-path` is the server-relative URL — a tiny inline
+    script turns it into an absolute URL on mount so copied links work
+    when pasted into other apps.
+  #}
+  <div
+    class="mb-4 flex items-center gap-2 text-xs rounded-lg bg-slate-900 ring-1 ring-slate-800 px-3 py-2"
+    data-share-widget
+  >
+    <span class="text-slate-500 uppercase tracking-wider text-[10px]">Share</span>
+    <input
+      type="text"
+      readonly
+      data-share-path="{{ share_url }}"
+      class="flex-1 bg-transparent text-slate-300 mono outline-none select-all"
+      value="{{ share_url }}"
+      aria-label="Shareable shadow-sim URL"
+    />
+    <button
+      type="button"
+      data-share-copy
+      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px]"
+    >Copy</button>
+    <a
+      data-share-open
+      href="{{ share_url }}"
+      target="_blank"
+      rel="noopener"
+      class="px-2 py-1 rounded bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 text-[11px]"
+    >Open ↗</a>
+  </div>
+  {% endif %}
 
   <div class="grid md:grid-cols-4 gap-3">
     <div class="rounded-lg bg-slate-900 ring-1 ring-slate-800 p-4">
@@ -279,6 +318,42 @@
     var caret = row.querySelector('.shadow-expand-caret');
     if (caret) caret.textContent = hidden ? '▸' : '▾';
   };
+
+  // Share widget: turn the server-relative share path into an absolute
+  // URL (so pasting works outside this tab) and wire the copy button.
+  (function () {
+    var widgets = document.querySelectorAll('[data-share-widget]');
+    widgets.forEach(function (w) {
+      var input = w.querySelector('[data-share-path]');
+      var btn = w.querySelector('[data-share-copy]');
+      if (!input) return;
+      var path = input.getAttribute('data-share-path') || '';
+      var abs = path.startsWith('http') ? path : (window.location.origin + path);
+      input.value = abs;
+      var openLink = w.querySelector('[data-share-open]');
+      if (openLink) openLink.setAttribute('href', abs);
+      if (btn) {
+        btn.addEventListener('click', function () {
+          try {
+            input.focus();
+            input.select();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(abs);
+            } else {
+              document.execCommand('copy');
+            }
+            var original = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('text-emerald-300');
+            setTimeout(function () {
+              btn.textContent = original;
+              btn.classList.remove('text-emerald-300');
+            }, 1500);
+          } catch (e) {}
+        });
+      }
+    });
+  })();
 </script>
 
 {% else %}
