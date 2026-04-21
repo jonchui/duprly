@@ -66,11 +66,27 @@ profile without depending on `/search`. See commit `1f0c787`.
 ## T-001 · Predictor sign regresses on lopsided losses
 
 - Code entry point: `dupr_predictor.predict_impacts`
-- Status: `parked` — known quirk, surfaces in `/goal`
+- Status: `partial-workaround` — surfaces in `/goal`; `/forecast` uses a
+  margin-aware wrapper that papers over the worst behavior.
 
 See [`docs/PREDICTOR_CONFIDENCE_JON_74.md`](./PREDICTOR_CONFIDENCE_JON_74.md)
-for the analysis. The fitted model sometimes returns a *positive* delta
-for the losing team when the match score is lopsided (e.g. 0-11). The
-fix requires refitting the model against DUPR's live `/match/forecast`
-endpoint (see `docs/DUPR_FORECAST_API.md` and
-`tests/fixtures/dupr_api/`), which is now plumbed through.
+for the analysis. The fitted model's `predict_impacts()` drives off
+`(games1 - expected_g1)` — i.e. the *winner's* total only. That means
+22-0, 22-7, 22-14, 22-18 all produce identical deltas because `games1`
+is 22 in every case. It also explains the T-001 symptom of losing teams
+occasionally getting positive deltas on lopsided scores.
+
+### Workaround shipped for `/forecast/card` (2026-04-21)
+
+`web/services/forecast._margin_aware_impacts()` rewrites the delta to
+use `actual_margin - expected_margin` instead. Enabled by default via
+`forecast_one(margin_aware=True)` — that's what the new DUPR-style score
+picker calls. Legacy code paths can opt out with `margin_aware=False`.
+
+### Full fix
+
+Refit the model against DUPR's live `/match/forecast` endpoint (see
+`docs/DUPR_FORECAST_API.md` and `tests/fixtures/dupr_api/`), which is
+now plumbed through. Once the fitted predictor learns the losing-team
+term natively, the margin-aware wrapper becomes redundant and can be
+deleted.

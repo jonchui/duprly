@@ -56,6 +56,54 @@ class ForecastRow:
     d4: float
 
 
+def _margin_aware_impacts(
+    predictor: DuprPredictor,
+    r1: float, r2: float, r3: float, r4: float,
+    games1: int, games2: int, winner: int,
+    rel1: Optional[float], rel2: Optional[float],
+    rel3: Optional[float], rel4: Optional[float],
+) -> tuple[float, float, float, float]:
+    """
+    A margin-sensitive version of predictor.predict_impacts().
+
+    The fitted DuprPredictor's formula is:
+        delta = K * (games1 - expected_g1) * 0.5 * reliability
+    which depends *only* on the winner's game total (22) and completely ignores
+    the loser's score. That means 22-0 and 22-18 produce the same delta —
+    useless for a "pick a score" UX where the whole point is to see how a
+    close 11-9 compares to an 11-0 blowout.
+
+    We patch this locally by driving the K term off of **margin excess**
+    (actual margin − expected margin, both as fractions of the total games
+    played) instead of the raw winner total. That produces the expected
+    monotonic behavior: bigger win vs expectation → bigger delta.
+
+    See docs/TICKETS.md · T-001 for the underlying model gap — once the
+    fitted predictor itself learns the losing-team term, this wrapper
+    becomes redundant.
+    """
+    total = max(1, games1 + games2)
+    # expected_games() returns expected games-won for team 1 assuming a
+    # 22-total match. We rescale to the total of this specific match.
+    expected_g1_frac = predictor.expected_games(r1, r2, r3, r4) / 22.0
+    expected_margin = (2 * expected_g1_frac - 1) * total  # in games
+    actual_margin = games1 - games2  # positive = team 1 won by this much
+    margin_excess = actual_margin - expected_margin
+
+    gR1 = predictor.reliability_multiplier(rel1)
+    gR2 = predictor.reliability_multiplier(rel2)
+    gR3 = predictor.reliability_multiplier(rel3)
+    gR4 = predictor.reliability_multiplier(rel4)
+
+    # K is fit on 22-total matches, so we don't divide by total again —
+    # margin_excess is already in the same "games won vs expected" units.
+    base = predictor.K * margin_excess * 0.5
+    if winner == 1:
+        return (base * gR1, base * gR2, -base * gR3, -base * gR4)
+    else:
+        return (base * gR1, base * gR2, -base * gR3, -base * gR4)
+
+
 def forecast_one(
     r1: float,
     r2: float,
@@ -67,15 +115,29 @@ def forecast_one(
     rel2: Optional[float] = None,
     rel3: Optional[float] = None,
     rel4: Optional[float] = None,
+    margin_aware: bool = True,
 ) -> ForecastRow:
-    """Forecast impact for a single concrete score."""
+    """
+    Forecast impact for a single concrete score.
+
+    margin_aware: if True (default for the new score-picker UI), drives
+        deltas off margin-vs-expected instead of winner-total-vs-expected.
+        Set False for legacy behaviour (full score matrix was originally
+        built around the fitted model's winner-only formula).
+    """
     predictor = get_predictor()
     winner = 1 if games1 > games2 else 2
     expected = predictor.expected_games(r1, r2, r3, r4)
-    d1, d2, d3, d4 = predictor.predict_impacts(
-        r1, r2, r3, r4, games1, games2, winner,
-        rel1=rel1, rel2=rel2, rel3=rel3, rel4=rel4,
-    )
+    if margin_aware:
+        d1, d2, d3, d4 = _margin_aware_impacts(
+            predictor, r1, r2, r3, r4, games1, games2, winner,
+            rel1, rel2, rel3, rel4,
+        )
+    else:
+        d1, d2, d3, d4 = predictor.predict_impacts(
+            r1, r2, r3, r4, games1, games2, winner,
+            rel1=rel1, rel2=rel2, rel3=rel3, rel4=rel4,
+        )
     impacts = [
         PlayerImpact(1, r1, d1, r1 + d1),
         PlayerImpact(2, r2, d2, r2 + d2),
