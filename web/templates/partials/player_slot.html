@@ -1,22 +1,49 @@
 {#
-  A single player slot — search DUPR for a name, or type the rating directly.
-  Required vars:
-    slot_num       — 1..4
-    rating_field   — form field name for the rating (e.g. "r1")
-    rel_field      — form field name for the reliability (e.g. "rel1")
-    rating_value   — pre-filled rating value (may be '')
-    rel_value      — pre-filled reliability value (may be '')
+  DRY player-slot component shared by /forecast and /reset.
+
+  Required:
+    slot_num           — 1..4 (stable id suffix used by fill_slot_js.html)
+
+  Forecast variant (ratings visible, dupr id hidden):
+    rating_field       — form field name for the rating (e.g. "r1")
+    rel_field          — form field name for the reliability (e.g. "rel1")
+    rating_value       — pre-filled rating value (may be '')
+    rel_value          — pre-filled reliability value (may be '')
+
+  Reset / simple variant overrides:
+    show_rating_fields  — bool, default True. Pass False to hide rating/rel inputs
+                          (reset page only needs a DUPR id).
+    slot_label          — label text above the slot (default "Player N")
+    search_placeholder  — custom placeholder for the search input
+    dupr_id_name        — name attr for the dupr id input
+                          (default "duprid_{slot_num}"; reset uses "dupr_id")
+    dupr_id_visible     — bool, default False. When True, renders the DUPR id
+                          as a visible readonly input next to the search so
+                          the user can see (and paste into) it.
+    dupr_id_value       — pre-filled dupr id (may be '')
+    dupr_id_placeholder — placeholder when visible (default "DUPR id")
+
+  The hidden metadata inputs (age/gender/loc/img) and the `#duprid-{slot_num}` /
+  `#name-{slot_num}` ids are kept stable so `fill_slot_js.html`'s `fillSlot`
+  function can populate any slot uniformly regardless of variant.
 #}
+{% set _show_rating = show_rating_fields if show_rating_fields is defined else True %}
+{% set _slot_label = slot_label if slot_label is defined and slot_label else "Player " ~ slot_num %}
+{% set _search_placeholder = search_placeholder if search_placeholder is defined and search_placeholder else "Name, DUPR id (4405492894), or dashboard URL…" %}
+{% set _dupr_id_name = dupr_id_name if dupr_id_name is defined and dupr_id_name else "duprid_" ~ slot_num %}
+{% set _dupr_id_visible = dupr_id_visible if dupr_id_visible is defined else False %}
+{% set _dupr_id_value = dupr_id_value if dupr_id_value is defined and dupr_id_value else "" %}
+{% set _dupr_id_placeholder = dupr_id_placeholder if dupr_id_placeholder is defined and dupr_id_placeholder else "DUPR id" %}
 <div class="relative">
   <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-    Player {{ slot_num }}
+    {{ _slot_label }}
   </label>
   <div class="flex gap-2 items-stretch">
     <div class="relative flex-1">
       <input
         type="text"
         name="q"
-        placeholder="Name, DUPR id (4405492894), or dashboard URL…"
+        placeholder="{{ _search_placeholder }}"
         class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
         id="search-{{ slot_num }}"
         hx-get="/dupr/search"
@@ -32,6 +59,7 @@
       </div>
       <div id="results-{{ slot_num }}" class="relative"></div>
     </div>
+    {% if _show_rating %}
     <input
       type="number"
       step="0.01"
@@ -55,14 +83,27 @@
       value="{{ rel_value if rel_value not in (none, '') else '' }}"
       class="w-16 bg-slate-950 ring-1 ring-slate-700 rounded px-2 py-2 text-sm mono"
     />
+    {% endif %}
+    {% if _dupr_id_visible %}
+    <input
+      type="text"
+      name="{{ _dupr_id_name }}"
+      id="duprid-{{ slot_num }}"
+      placeholder="{{ _dupr_id_placeholder }}"
+      required
+      class="w-40 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-2 text-sm mono"
+      value="{{ _dupr_id_value }}"
+    />
+    {% endif %}
   </div>
-  {# Set by fillSlot() when a DUPR result is picked. Enables the "DUPR forecast" CTA
-     and lets the score-picker card show real names + metadata. #}
-  <input type="hidden" id="duprid-{{ slot_num }}" name="duprid_{{ slot_num }}" value="" />
+  {# Set by fillSlot() when a DUPR result is picked. Enables downstream CTAs
+     (e.g. the /forecast "DUPR-official" button) and lets the score-picker
+     card show real names. When `_dupr_id_visible` is True we've already
+     rendered a visible input with id="duprid-{slot_num}", so we skip the
+     hidden duplicate to keep the id unique. #}
+  {% if not _dupr_id_visible %}
+  <input type="hidden" id="duprid-{{ slot_num }}" name="{{ _dupr_id_name }}" value="{{ _dupr_id_value }}" />
+  {% endif %}
   <input type="hidden" id="name-{{ slot_num }}" name="name_{{ slot_num }}" value="" />
-  <input type="hidden" id="age-{{ slot_num }}" name="age_{{ slot_num }}" value="" />
-  <input type="hidden" id="gender-{{ slot_num }}" name="gender_{{ slot_num }}" value="" />
-  <input type="hidden" id="loc-{{ slot_num }}" name="loc_{{ slot_num }}" value="" />
-  <input type="hidden" id="img-{{ slot_num }}" name="img_{{ slot_num }}" value="" />
   <div id="label-{{ slot_num }}" class="mt-1 text-xs text-slate-500 min-h-[1.1em]"></div>
 </div>

@@ -27,38 +27,18 @@
   hx-indicator="#reset-spinner"
 >
   <div class="grid md:grid-cols-[2fr_1fr_1fr] gap-4 items-end">
-    <div>
-      <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-        Your DUPR player
-      </label>
-      <div class="flex gap-2 items-stretch">
-        <div class="relative flex-1">
-          <input
-            type="text"
-            placeholder="Search DUPR by name…"
-            class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
-            id="reset-search"
-            hx-get="/dupr/search"
-            hx-trigger="keyup changed delay:300ms"
-            hx-target="#reset-results-list"
-            hx-vals='{"slot": 1}'
-            autocomplete="off"
-            form="__never-submit"
-          />
-          <div id="reset-results-list" class="relative"></div>
-        </div>
-        <input
-          type="text"
-          name="dupr_id"
-          id="reset-dupr-id"
-          placeholder="DUPR id"
-          required
-          class="w-40 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-2 text-sm mono"
-          value="{{ inputs.dupr_id if inputs else '' }}"
-        />
-      </div>
-      <div id="reset-label" class="mt-1 text-xs text-slate-500 min-h-[1.1em]"></div>
-    </div>
+    {# Reuse the same DUPR-search player slot component used by /forecast.
+       show_rating_fields=False hides the rating/rel inputs; dupr_id_visible=True
+       shows the id input so the user can paste a raw DUPR id or dashboard URL. #}
+    {% with
+      slot_num=1,
+      show_rating_fields=False,
+      slot_label="Your DUPR player",
+      search_placeholder="Search DUPR by name…",
+      dupr_id_name="dupr_id",
+      dupr_id_visible=True,
+      dupr_id_value=(inputs.dupr_id if inputs else "")
+    %}{% include "partials/player_slot.html" %}{% endwith %}
 
     <div>
       <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
@@ -105,31 +85,7 @@
   {% include "partials/reset_results.html" %}
 </div>
 
-<script>
-  // Simpler fillSlot variant for the reset page — only needs the DUPR id.
-  function fillSlot(slot, duprId, fullName, rating, reliability) {
-    const idInput = document.querySelector('#reset-dupr-id');
-    const searchInput = document.querySelector('#reset-search');
-    const label = document.querySelector('#reset-label');
-    const resultsBox = document.querySelector('#reset-results-list');
-
-    if (idInput) idInput.value = duprId || '';
-    if (searchInput) searchInput.value = fullName || '';
-    if (label) {
-      let html = '<span class="text-emerald-300">● </span>' + (fullName || '');
-      if (rating) html += ' <span class="text-slate-400">· current ' + Number(rating).toFixed(3) + '</span>';
-      html += ' <span class="text-slate-600">· ' + duprId + '</span>';
-      label.innerHTML = html;
-    }
-    if (resultsBox) resultsBox.innerHTML = '';
-  }
-
-  document.addEventListener('click', function (e) {
-    const box = document.querySelector('#reset-results-list');
-    const searchBox = document.querySelector('#reset-search');
-    if (box && !box.contains(e.target) && e.target !== searchBox) {
-      box.innerHTML = '';
-    }
-  });
-</script>
+{# Shared fillSlot() — gracefully skips rating/rel inputs when they're absent,
+   so the same helper works for /forecast (full slot) and /reset (dupr id only). #}
+{% include "partials/fill_slot_js.html" %}
 {% endblock %}
