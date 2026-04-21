@@ -141,6 +141,7 @@ def forecast_card(
     event_label: Optional[str] = Query(default=None),
     venue_label: Optional[str] = Query(default=None),
     prefer: Optional[str] = Query(default=None, description="'official' | 'local' — force a delta source"),
+    demo: int = Query(default=0, description="If 1, wrap the card in a standalone HTML+Tailwind shell for screenshots"),
 ):
     """
     Render a single DUPR-style match card for one concrete score.
@@ -203,9 +204,10 @@ def forecast_card(
         split_note = "DUPR per-game"
     else:
         split_note = "2-0 sweep" if games_played <= 2 else "2-1 split"
+    template = "partials/dupr_match_card_demo.html" if demo else "partials/dupr_match_card.html"
     return _tr(
         request,
-        "partials/dupr_match_card.html",
+        template,
         {
             "row": row,
             "players": players,
