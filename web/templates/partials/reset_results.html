@@ -49,8 +49,8 @@
         {% endif %}
       </div>
     </div>
-    <div class="rounded-lg bg-slate-900 ring-1 ring-slate-800 p-4">
-      <div class="text-[11px] uppercase tracking-wider text-slate-500">Replay · current rels</div>
+    <div class="rounded-lg bg-slate-900 ring-1 ring-slate-800 p-4" title="Sums DUPR's authoritative per-match deltas — should match your live DUPR rating to within rounding.">
+      <div class="text-[11px] uppercase tracking-wider text-slate-500">Replay · DUPR deltas</div>
       <div class="mono text-2xl {{ 'text-emerald-300' if summary.actual_delta > 0 else ('text-rose-300' if summary.actual_delta < 0 else 'text-slate-100') }}">
         {{ "%.3f"|format(summary.actual_final_rating) }}
       </div>
@@ -257,10 +257,12 @@
     </table>
   </div>
   <p class="mt-2 text-[11px] text-slate-500">
-    <span class="text-emerald-300 mono">actual Δ</span> uses the reliability values recorded
-    on each match. <span class="text-emerald-200 mono">shadow Δ</span> uses a
-    simulated reliability that grows <span class="mono">+5%</span> per match
-    from a 0% reset.
+    <span class="text-emerald-300 mono">actual Δ</span> is DUPR's own per-match
+    rating delta (from <span class="mono">matchDoubleRatingImpactPlayerN</span>)
+    — summed, it mirrors your live DUPR rating.
+    <span class="text-emerald-200 mono">shadow Δ</span> is our prediction using
+    a simulated reliability that grows <span class="mono">+5%</span> per match
+    from a 0% reset — diverging from DUPR shows how much low-rel swings matter.
   </p>
 </section>
 {% endif %}

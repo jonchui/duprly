@@ -4,15 +4,22 @@ Shadow-reset simulator for a single DUPR player.
 Answers: "If DUPR reset my reliability to 0% today and replayed every match
 since <cutoff_date> against my pre-reset baseline, where would I land?"
 
-This wraps the existing `dupr_shadow_calculator` module with two changes:
+This wraps the existing `dupr_shadow_calculator` module with three changes:
 
 1. **Date-windowed replay** — instead of last-N matches, we keep every match
-   whose `event_date >= cutoff_date`. Default cutoff is 2024-04-16 (the start
-   of DUPR's last publicly-discussed ratings overhaul), overridable.
-2. **Forced 0% reliability for the target player** — we rerun the predictor
-   with the target slot's reliability set to 0, which in the fitted model
-   yields the maximum per-match impact (multiplier = 1.0). Opponents keep
-   their real reliability values so the rest of the table behaves normally.
+   whose `event_date >= cutoff_date`. Default cutoff is 2026-04-16 (DUPR's
+   most recent publicly-discussed ratings overhaul), overridable.
+2. **Growing target reliability for the shadow branch** — we rerun the
+   predictor with the target slot's reliability starting at 0% and growing
+   +5% per match (capped at the player's current DUPR `doublesReliabilityScore`).
+   Opponents keep their real reliability values so the rest of the table
+   behaves normally.
+3. **Actual branch uses DUPR's authoritative deltas** — the "Replay ·
+   current rels" trajectory sums DUPR's own
+   `matchDoubleRatingImpactPlayer{1,2}` values from each match payload, not
+   our reverse-engineered predictor. This guarantees the replay end-state
+   mirrors the player's live DUPR rating (to within DUPR's rounding). The
+   predictor is kept as a fallback when those fields are missing.
 
 Live DUPR credentials (DUPR_USERNAME / DUPR_PASSWORD) are required — this
 feature inherently needs each player's match history, which is not cached
@@ -196,6 +203,42 @@ def _index_matches_by_id(raw_matches: Sequence[Any]) -> Dict[str, Dict[str, Any]
     return out
 
 
+def _extract_dupr_impacts(
+    raw_match: Dict[str, Any],
+) -> Optional[Tuple[float, float, float, float]]:
+    """Pull DUPR's *own* per-slot doubles rating impacts out of a raw match.
+
+    These live on each team's `preMatchRatingAndImpact` block as
+    `matchDoubleRatingImpactPlayer{1,2}` and represent what DUPR actually
+    applied to each player after the match — i.e. the authoritative delta.
+
+    Slot convention matches `dupr_shadow_calculator.normalize_matches_for_player`:
+        slot 1 = teams[0].player1     slot 2 = teams[0].player2
+        slot 3 = teams[1].player1     slot 4 = teams[1].player2
+
+    Returns a 4-tuple (floats) when all four impacts are present, else None
+    so the caller can fall back to the predictor.
+    """
+    teams = raw_match.get("teams")
+    if not isinstance(teams, list) or len(teams) < 2:
+        return None
+    out: List[float] = []
+    for t_idx in (0, 1):
+        team = teams[t_idx] if isinstance(teams[t_idx], dict) else {}
+        block = team.get("preMatchRatingAndImpact")
+        if not isinstance(block, dict):
+            return None
+        for p_idx in (1, 2):
+            v = block.get(f"matchDoubleRatingImpactPlayer{p_idx}")
+            if v is None:
+                return None
+            try:
+                out.append(float(v))
+            except (TypeError, ValueError):
+                return None
+    return (out[0], out[1], out[2], out[3])
+
+
 def _target_slot_impact(slot: int, impacts) -> float:
     return impacts[slot - 1]
 
@@ -317,11 +360,22 @@ def simulate(
         # it reaches the player's real current ceiling.
         shadow_rel_pre = min(rel_ceiling, idx * SHADOW_REL_INC_PER_MATCH)
 
-        actual_imp_tuple = predictor.predict_impacts(
-            m.r1, m.r2, m.r3, m.r4,
-            m.games1, m.games2, m.winner,
-            rel1=m.rel1, rel2=m.rel2, rel3=m.rel3, rel4=m.rel4,
-        )
+        raw_match = raw_by_id.get(m.match_id) or {}
+        # "Actual" = what DUPR really did. DUPR embeds the authoritative
+        # per-player impact in `teams[*].preMatchRatingAndImpact.matchDoubleRatingImpactPlayerN`,
+        # so we use those directly. Summing them reproduces the player's live
+        # DUPR rating exactly. If the payload is missing fields we fall back
+        # to our reverse-engineered predictor — but that path is lossy
+        # because the match-history API doesn't return per-match reliability.
+        dupr_imp = _extract_dupr_impacts(raw_match)
+        if dupr_imp is not None:
+            actual_imp_tuple = dupr_imp
+        else:
+            actual_imp_tuple = predictor.predict_impacts(
+                m.r1, m.r2, m.r3, m.r4,
+                m.games1, m.games2, m.winner,
+                rel1=m.rel1, rel2=m.rel2, rel3=m.rel3, rel4=m.rel4,
+            )
         actual_impact = _target_slot_impact(m.slot, actual_imp_tuple)
 
         # Shadow: same match, but overwrite target player's reliability with
@@ -342,7 +396,6 @@ def simulate(
         if m.target_reliability is not None:
             actual_final_rel = float(m.target_reliability)
 
-        raw_match = raw_by_id.get(m.match_id) or {}
         players_meta = _extract_match_players(raw_match)
 
         rows.append(
