@@ -5,11 +5,12 @@
 <h1 class="text-2xl md:text-3xl font-bold mb-2">Shadow-reset simulator</h1>
 <p class="text-slate-400 mb-4">
   Replays every one of your DUPR matches since a cutoff date (default
-  <span class="mono text-slate-300">2024-04-16</span>, the start of the last
-  public ratings overhaul) with your reliability forced to <span class="mono">0%</span>.
-  That gives the <em>maximum</em> per-match impact the model can assign — it's a
-  what-if lower bound for "what would my rating be if DUPR rebuilt it from
-  scratch tomorrow?"
+  <span class="mono text-slate-300">{{ default_cutoff }}</span>, matching the
+  most recent DUPR reset window) starting from <span class="mono">0%</span>
+  reliability and growing <span class="mono">+5%</span> per match. That answers
+  "what would my rating be if DUPR rebuilt it from scratch tomorrow?" — the
+  early matches swing hard, and reliability (and therefore swing size) catches
+  up match-by-match.
 </p>
 <div class="rounded-lg bg-slate-900/60 ring-1 ring-slate-800 px-4 py-3 text-xs text-slate-400 mb-6">
   This uses a reverse-engineered model, not official DUPR code. Treat the output
@@ -57,7 +58,14 @@
       <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
         Baseline rating (optional)
       </label>
+      {#
+        `id="baseline-rating-input"` is the HTMX OOB swap target set by
+        `partials/reset_results.html` after a sim runs — the server replaces
+        this element so the user sees the baseline we actually used
+        (earliest-eligible-match pre-rating) instead of a blank box.
+      #}
       <input
+        id="baseline-rating-input"
         type="number"
         step="0.001"
         min="1.0"
@@ -65,9 +73,11 @@
         name="baseline_rating"
         placeholder="e.g. 4.250"
         class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm mono"
-        value="{{ inputs.baseline_rating if inputs and inputs.baseline_rating not in (None, '') else '' }}"
+        value="{{ inputs.baseline_rating if inputs and inputs.baseline_rating not in (None, '') else (('%.3f'|format(summary.baseline_rating)) if summary else '') }}"
       />
-      <p class="mt-1 text-[11px] text-slate-500">Defaults to your earliest match's pre-rating.</p>
+      <p class="mt-1 text-[11px] text-slate-500">
+        Auto-fills from the first match on/after your cutoff; override anytime.
+      </p>
     </div>
   </div>
 

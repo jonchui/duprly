@@ -4,6 +4,27 @@
   <span class="mono">{{ error }}</span>
 </div>
 {% elif summary %}
+{#
+  Out-of-band HTMX swap: when the user hasn't typed a baseline rating, we
+  auto-fill the "Baseline rating (optional)" input with whatever we resolved
+  the baseline to (earliest eligible match's pre-rating). `hx-swap-oob` on
+  a second top-level element is picked up by htmx and targets the input by
+  id. We only overwrite when empty so a user's manual entry sticks.
+#}
+<input
+  id="baseline-rating-input"
+  type="number"
+  step="0.001"
+  min="1.0"
+  max="8.5"
+  name="baseline_rating"
+  placeholder="e.g. 4.250"
+  class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm mono"
+  value="{{ '%.3f'|format(summary.baseline_rating) }}"
+  data-auto-fill-baseline="{{ '%.3f'|format(summary.baseline_rating) }}"
+  hx-swap-oob="outerHTML"
+/>
+
 <section class="mb-6">
   <div class="flex items-baseline justify-between flex-wrap gap-2 mb-3">
     <h2 class="text-xl font-semibold">
@@ -21,7 +42,12 @@
     <div class="rounded-lg bg-slate-900 ring-1 ring-slate-800 p-4">
       <div class="text-[11px] uppercase tracking-wider text-slate-500">Baseline</div>
       <div class="mono text-2xl text-slate-100">{{ "%.3f"|format(summary.baseline_rating) }}</div>
-      <div class="text-[11px] text-slate-500 mt-1">as of {{ summary.cutoff_date }}</div>
+      <div class="text-[11px] text-slate-500 mt-1">
+        as of {{ summary.cutoff_date }}
+        {% if summary.baseline_reliability is not none %}
+          · rel <span class="mono text-slate-400">{{ "%.0f"|format(summary.baseline_reliability) }}%</span>
+        {% endif %}
+      </div>
     </div>
     <div class="rounded-lg bg-slate-900 ring-1 ring-slate-800 p-4">
       <div class="text-[11px] uppercase tracking-wider text-slate-500">Replay · current rels</div>
@@ -30,10 +56,15 @@
       </div>
       <div class="text-[11px] mono {{ 'text-emerald-400' if summary.actual_delta > 0 else ('text-rose-400' if summary.actual_delta < 0 else 'text-slate-500') }}">
         {{ "%+.3f"|format(summary.actual_delta) }}
+        {% if summary.actual_final_reliability is not none %}
+          <span class="text-slate-500">· rel {{ "%.0f"|format(summary.actual_final_reliability) }}%</span>
+        {% endif %}
       </div>
     </div>
     <div class="rounded-lg bg-emerald-900/30 ring-1 ring-emerald-800 p-4">
-      <div class="text-[11px] uppercase tracking-wider text-emerald-300">Shadow · 0% reliability</div>
+      <div class="text-[11px] uppercase tracking-wider text-emerald-300">
+        Shadow · rel 0% → {{ "%.0f"|format(summary.shadow_final_reliability) }}%
+      </div>
       <div class="mono text-2xl {{ 'text-emerald-200' if summary.shadow_delta > 0 else ('text-rose-200' if summary.shadow_delta < 0 else 'text-slate-100') }}">
         {{ "%.3f"|format(summary.shadow_final_rating) }}
       </div>
@@ -59,13 +90,28 @@
     · partners: <span class="mono text-slate-300">{{ summary.partner_diversity }}</span>
     · opponents: <span class="mono text-slate-300">{{ summary.opponent_diversity }}</span>
   </div>
+  <p class="mt-2 text-[11px] text-slate-500 leading-relaxed">
+    <strong class="text-slate-400">Why doesn't my rel change per match?</strong>
+    DUPR's match-history API only returns pre-match ratings, not per-match
+    reliability — so the <span class="text-slate-300 mono">my rel</span> column
+    below falls back to "—" and we surface your current DUPR-reported rel
+    (<span class="mono text-slate-300">{{ "%.0f"|format(summary.current_reliability) if summary.current_reliability is not none else "?" }}%</span>)
+    as a constant instead.
+    <br/>
+    <strong class="text-emerald-300">Shadow reliability</strong> is a
+    simulation: it starts at <span class="mono">0%</span> and grows
+    <span class="mono">+5%</span> per match, capped at your ceiling
+    (<span class="mono text-emerald-200">{{ "%.0f"|format(summary.shadow_final_reliability) }}%</span>
+    after {{ summary.matches_used }} matches). That's what's driving the
+    <span class="text-emerald-200 mono">shadow Δ</span> column.
+  </p>
 </section>
 
 {% if summary.rows %}
 <section>
   <div class="flex items-baseline justify-between mb-2">
     <h3 class="text-sm font-semibold text-slate-300">Per-match replay</h3>
-    <div class="text-[11px] text-slate-500">oldest → newest</div>
+    <div class="text-[11px] text-slate-500">click a row → full DUPR-style match card · oldest → newest</div>
   </div>
   <div class="overflow-x-auto rounded-lg ring-1 ring-slate-800">
     <table class="w-full text-xs mono">
@@ -76,6 +122,7 @@
           <th class="text-left px-2 py-2">matchup (pre-ratings)</th>
           <th class="text-right px-2 py-2">score</th>
           <th class="text-right px-2 py-2">my rel</th>
+          <th class="text-right px-2 py-2">shadow rel</th>
           <th class="text-right px-2 py-2">actual Δ</th>
           <th class="text-right px-2 py-2">actual run</th>
           <th class="text-right px-2 py-2">shadow Δ</th>
@@ -86,16 +133,49 @@
         {% for r in summary.rows %}
         {% set mine_t1 = r.slot in (1, 2) %}
         {% set won = (mine_t1 and r.winner == 1) or ((not mine_t1) and r.winner == 2) %}
-        <tr class="hover:bg-slate-900/50">
-          <td class="px-2 py-1 text-slate-500">{{ loop.index }}</td>
+        {% set details_id = "match-details-" ~ loop.index %}
+        <tr
+          class="hover:bg-slate-900/50 cursor-pointer select-none"
+          onclick="duprlyToggleShadowDetails('{{ details_id }}', this)"
+          aria-expanded="false"
+          aria-controls="{{ details_id }}"
+        >
+          <td class="px-2 py-1 text-slate-500">
+            <span class="inline-block w-3 text-slate-600 shadow-expand-caret">▸</span>
+            {{ loop.index }}
+          </td>
           <td class="px-2 py-1 text-slate-500">{{ r.event_date[:10] if r.event_date else '—' }}</td>
           <td class="px-2 py-1">
-            <span class="{{ 'text-emerald-300' if mine_t1 else 'text-slate-300' }}">
-              {{ "%.2f"|format(r.r1) }}/{{ "%.2f"|format(r.r2) }}
+            {% set t1 = [(r.players[0] if r.players and r.players|length > 0 else {}), (r.players[1] if r.players and r.players|length > 1 else {})] %}
+            {% set t2 = [(r.players[2] if r.players and r.players|length > 2 else {}), (r.players[3] if r.players and r.players|length > 3 else {})] %}
+            <span class="inline-flex items-center gap-1 align-middle">
+              {% for p in t1 %}
+                {% if p.get('image_url') %}
+                  <img src="{{ p.image_url }}" alt="" class="w-4 h-4 rounded-full object-cover ring-1 ring-slate-700" loading="lazy" />
+                {% else %}
+                  <span class="w-4 h-4 rounded-full bg-slate-700 inline-flex items-center justify-center text-[8px] text-slate-300">
+                    {{ (p.get('name') or '·')[:1]|upper }}
+                  </span>
+                {% endif %}
+              {% endfor %}
+              <span class="{{ 'text-emerald-300' if mine_t1 else 'text-slate-300' }}">
+                {{ "%.2f"|format(r.r1) }}/{{ "%.2f"|format(r.r2) }}
+              </span>
             </span>
             <span class="text-slate-600">vs</span>
-            <span class="{{ 'text-emerald-300' if not mine_t1 else 'text-slate-300' }}">
-              {{ "%.2f"|format(r.r3) }}/{{ "%.2f"|format(r.r4) }}
+            <span class="inline-flex items-center gap-1 align-middle">
+              <span class="{{ 'text-emerald-300' if not mine_t1 else 'text-slate-300' }}">
+                {{ "%.2f"|format(r.r3) }}/{{ "%.2f"|format(r.r4) }}
+              </span>
+              {% for p in t2 %}
+                {% if p.get('image_url') %}
+                  <img src="{{ p.image_url }}" alt="" class="w-4 h-4 rounded-full object-cover ring-1 ring-slate-700" loading="lazy" />
+                {% else %}
+                  <span class="w-4 h-4 rounded-full bg-slate-700 inline-flex items-center justify-center text-[8px] text-slate-300">
+                    {{ (p.get('name') or '·')[:1]|upper }}
+                  </span>
+                {% endif %}
+              {% endfor %}
             </span>
           </td>
           <td class="px-2 py-1 text-right {{ 'text-emerald-300' if won else 'text-rose-300' }}">
@@ -103,6 +183,9 @@
           </td>
           <td class="px-2 py-1 text-right text-slate-500">
             {% if r.target_reliability is not none %}{{ "%.0f"|format(r.target_reliability) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-2 py-1 text-right text-emerald-400/80">
+            {{ "%.0f"|format(r.shadow_reliability) }}
           </td>
           <td class="px-2 py-1 text-right {{ 'text-emerald-400' if r.actual_impact > 0 else ('text-rose-400' if r.actual_impact < 0 else 'text-slate-500') }}">
             {{ "%+.4f"|format(r.actual_impact) }}
@@ -113,17 +196,88 @@
           </td>
           <td class="px-2 py-1 text-right text-emerald-200">{{ "%.3f"|format(r.shadow_running) }}</td>
         </tr>
+        {#
+          Expandable details row. We build a synthetic "ForecastRow"-shaped
+          namespace inside the template so we can reuse the existing DUPR
+          match-card partial verbatim — same 2×2 avatar grid, same score
+          banner, same delta chips — without duplicating that styling here.
+        #}
+        {% set impacts = [
+            {"player": 1, "pre_rating": r.r1, "delta": r.shadow_impacts[0], "post_rating": r.r1 + r.shadow_impacts[0]},
+            {"player": 2, "pre_rating": r.r2, "delta": r.shadow_impacts[1], "post_rating": r.r2 + r.shadow_impacts[1]},
+            {"player": 3, "pre_rating": r.r3, "delta": r.shadow_impacts[2], "post_rating": r.r3 + r.shadow_impacts[2]},
+            {"player": 4, "pre_rating": r.r4, "delta": r.shadow_impacts[3], "post_rating": r.r4 + r.shadow_impacts[3]},
+        ] %}
+        {% set card_row = {
+            "games1": r.games1,
+            "games2": r.games2,
+            "winner": r.winner,
+            "d1": r.shadow_impacts[0],
+            "d2": r.shadow_impacts[1],
+            "d3": r.shadow_impacts[2],
+            "d4": r.shadow_impacts[3],
+            "impacts": impacts,
+            "expected_games_team1": 0.0,
+        } %}
+        <tr id="{{ details_id }}" class="hidden bg-slate-950/60">
+          <td colspan="10" class="px-4 py-4">
+            <div class="mb-2 text-[11px] text-slate-500 flex items-center justify-between gap-2 flex-wrap">
+              <span>
+                Slot <span class="mono text-slate-300">{{ r.slot }}</span>
+                · actual Δ <span class="mono text-slate-300">{{ "%+.4f"|format(r.actual_impact) }}</span>
+                · shadow Δ <span class="mono text-emerald-200">{{ "%+.4f"|format(r.shadow_impact) }}</span>
+                · shadow rel <span class="mono text-emerald-200">{{ "%.0f"|format(r.shadow_reliability) }}%</span>
+              </span>
+              {% if r.match_id %}
+                <a
+                  href="https://dashboard.dupr.com/dashboard/matches/{{ r.match_id }}"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-emerald-300 hover:text-emerald-200 hover:underline"
+                >View on DUPR →</a>
+              {% endif %}
+            </div>
+            {% with
+              row=card_row,
+              players=r.players,
+              is_preview=false,
+              event_label="Shadow replay · match " ~ loop.index,
+              venue_label=(r.event_date[:10] if r.event_date else "date unknown")
+                ~ " · shadow Δ uses rel " ~ ("%.0f"|format(r.shadow_reliability)) ~ "%",
+              team1_meta=none,
+              team2_meta=none,
+              delta_source=none
+            %}
+              {% include "partials/dupr_match_card.html" %}
+            {% endwith %}
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   <p class="mt-2 text-[11px] text-slate-500">
     <span class="text-emerald-300 mono">actual Δ</span> uses the reliability values recorded
-    on each match. <span class="text-emerald-200 mono">shadow Δ</span> forces
-    <em>your</em> slot's reliability to 0 so the predictor applies full movement.
+    on each match. <span class="text-emerald-200 mono">shadow Δ</span> uses a
+    simulated reliability that grows <span class="mono">+5%</span> per match
+    from a 0% reset.
   </p>
 </section>
 {% endif %}
+
+<script>
+  // Toggle visibility of a match-details row + flip the caret indicator.
+  // Defined in the partial (not base.html) so it's re-installed on every
+  // HTMX swap and doesn't need extra plumbing.
+  window.duprlyToggleShadowDetails = function (id, row) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var hidden = el.classList.toggle('hidden');
+    row.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    var caret = row.querySelector('.shadow-expand-caret');
+    if (caret) caret.textContent = hidden ? '▸' : '▾';
+  };
+</script>
 
 {% else %}
 <p class="text-slate-500 text-sm">

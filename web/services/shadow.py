@@ -27,7 +27,7 @@ import logging
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from dupr_predictor import DuprPredictor
 from dupr_shadow_calculator import (
@@ -40,9 +40,19 @@ from web.services.dupr_live import _get_live_client, _has_live_credentials
 
 _LOG = logging.getLogger("duprly.shadow")
 
-# DUPR's most recent "reset" event started around this date — overridable from
-# the UI. This is our out-of-the-box default for the "since the reset" cutoff.
-DEFAULT_CUTOFF = date(2024, 4, 16)
+# DUPR's most recent public ratings overhaul. The UI defaults to this cutoff so
+# the "what-if reset" story matches DUPR's own framing — overridable from the
+# form.
+DEFAULT_CUTOFF = date(2026, 4, 16)
+
+# Simple linear reliability-growth model used for the shadow simulation.
+# The premise: if DUPR reset your reliability to 0% today, every subsequent
+# rated match would nudge it back up. DUPR's internal growth curve isn't
+# public, but empirically players cross ~100% after ~20 rated matches, so
+# we approximate +5% per match, capped by the player's observed `current`
+# reliability ceiling (or 100% if the API didn't return one).
+SHADOW_REL_INC_PER_MATCH = 5.0
+SHADOW_REL_MAX_DEFAULT = 100.0
 
 
 class ShadowUnavailable(RuntimeError):
@@ -66,9 +76,18 @@ class ShadowMatchRow:
     # What DUPR actually did (real reliability values on the match).
     actual_impact: float
     actual_running: float
-    # What the shadow sim would have done (target rel forced to 0).
-    shadow_impact: float
-    shadow_running: float
+    actual_impacts: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    # What the shadow sim would have done (target rel forced to 0, then
+    # growing per `SHADOW_REL_INC_PER_MATCH` as matches are replayed).
+    shadow_impact: float = 0.0
+    shadow_running: float = 0.0
+    shadow_impacts: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    # Target-slot reliability the shadow sim used for THIS match (pre-match).
+    # Starts near 0 and grows over time — gives the UI a per-row trajectory.
+    shadow_reliability: float = 0.0
+    # Per-slot player meta (name / dupr_id / image_url / …) so the per-row
+    # DUPR-style match card can render avatars + profile links.
+    players: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -77,14 +96,20 @@ class ShadowSummary:
     player_name: Optional[str]
     cutoff_date: str
     baseline_rating: float
+    # Reliability observed on the earliest eligible match (i.e. at the
+    # cutoff). Surfaces as "rel at baseline" in the UI so users can see
+    # where their real rel started when the simulated reset happened.
+    baseline_reliability: Optional[float]
     current_rating: Optional[float]
     current_reliability: Optional[float]
     matches_since_cutoff: int
     matches_used: int
     actual_delta: float
     actual_final_rating: float
+    actual_final_reliability: Optional[float]
     shadow_delta: float
     shadow_final_rating: float
+    shadow_final_reliability: float
     higher_of_rating: float
     partner_diversity: int
     opponent_diversity: int
@@ -106,6 +131,69 @@ def _filter_by_cutoff(
         if m.event_date is None or m.event_date >= cutoff_dt:
             kept.append(m)
     return kept
+
+
+def _extract_match_players(raw_match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Pull per-slot player meta (id / name / avatar / age / loc) out of a
+    raw DUPR match payload. Returns a 4-element list indexed by slot (0..3
+    maps to slots 1..4). Missing slots become empty dicts so downstream
+    template code can safely render placeholders.
+    """
+    out: List[Dict[str, Any]] = [{}, {}, {}, {}]
+    teams = raw_match.get("teams")
+    if not isinstance(teams, list) or len(teams) < 2:
+        return out
+
+    def _slot_meta(p: Any) -> Dict[str, Any]:
+        if not isinstance(p, dict):
+            return {}
+        pid_raw = p.get("id") or p.get("playerId") or p.get("userId") or p.get("duprId")
+        pid = str(pid_raw) if pid_raw is not None else None
+        full = p.get("fullName") or " ".join(
+            x for x in [p.get("firstName"), p.get("lastName")] if x
+        ).strip()
+        return {
+            "dupr_id": pid,
+            "name": full or None,
+            "image_url": p.get("imageUrl"),
+            "age": p.get("age"),
+            "gender": p.get("gender"),
+            "short_address": p.get("shortAddress") or p.get("addressShort"),
+        }
+
+    team0 = teams[0] if isinstance(teams[0], dict) else {}
+    team1 = teams[1] if isinstance(teams[1], dict) else {}
+
+    def _team_players(team: Dict[str, Any]) -> Tuple[Any, Any]:
+        p1 = team.get("player1") if isinstance(team.get("player1"), dict) else None
+        p2 = team.get("player2") if isinstance(team.get("player2"), dict) else None
+        if p1 and p2:
+            return p1, p2
+        players = team.get("players")
+        if isinstance(players, list) and len(players) >= 2:
+            return players[0], players[1]
+        return p1, p2
+
+    t0p1, t0p2 = _team_players(team0)
+    t1p1, t1p2 = _team_players(team1)
+    out[0] = _slot_meta(t0p1)
+    out[1] = _slot_meta(t0p2)
+    out[2] = _slot_meta(t1p1)
+    out[3] = _slot_meta(t1p2)
+    return out
+
+
+def _index_matches_by_id(raw_matches: Sequence[Any]) -> Dict[str, Dict[str, Any]]:
+    """Build a match_id -> raw_match lookup so we can pair NormalizedMatch
+    rows back with their source payload for player metadata."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for idx, m in enumerate(raw_matches):
+        if not isinstance(m, dict):
+            continue
+        raw_id = m.get("matchId") or m.get("match_id") or m.get("id")
+        key = str(raw_id) if raw_id is not None else f"match-{idx}"
+        out[key] = m
+    return out
 
 
 def _target_slot_impact(slot: int, impacts) -> float:
@@ -187,6 +275,7 @@ def simulate(
 
     all_normalized = normalize_matches_for_player(raw_matches, player_id=resolved_id)
     eligible = _filter_by_cutoff(all_normalized, cutoff)
+    raw_by_id = _index_matches_by_id(raw_matches)
 
     # Baseline: explicit > API-inferred pre-rating of earliest eligible match >
     # current doubles rating.
@@ -200,6 +289,15 @@ def simulate(
                 "No baseline rating available — pass baseline_rating explicitly."
             )
 
+    baseline_reliability: Optional[float] = None
+    if eligible and eligible[0].target_reliability is not None:
+        baseline_reliability = float(eligible[0].target_reliability)
+
+    # Shadow rel ceiling — cap growth at what the player is actually known to
+    # reach today (falls back to 100% if the API didn't return one).
+    rel_ceiling = float(meta.get("current_reliability") or SHADOW_REL_MAX_DEFAULT)
+    rel_ceiling = max(0.0, min(SHADOW_REL_MAX_DEFAULT, rel_ceiling))
+
     predictor_path = model_file or _default_model_path()
     predictor = DuprPredictor(predictor_path)
 
@@ -208,9 +306,17 @@ def simulate(
     rows: List[ShadowMatchRow] = []
     partners = set()
     opponents = set()
+    # Track the latest per-match reliability we actually saw. DUPR's match
+    # history endpoint currently does NOT return per-match reliability, so
+    # this typically stays None across the window and we fall back to the
+    # player's live `doublesReliabilityScore`.
+    actual_final_rel: Optional[float] = None
 
-    for m in eligible:
-        # Actual: use the real per-player reliability values.
+    for idx, m in enumerate(eligible):
+        # Pre-match shadow reliability: grows from 0% at a steady pace until
+        # it reaches the player's real current ceiling.
+        shadow_rel_pre = min(rel_ceiling, idx * SHADOW_REL_INC_PER_MATCH)
+
         actual_imp_tuple = predictor.predict_impacts(
             m.r1, m.r2, m.r3, m.r4,
             m.games1, m.games2, m.winner,
@@ -218,8 +324,10 @@ def simulate(
         )
         actual_impact = _target_slot_impact(m.slot, actual_imp_tuple)
 
-        # Shadow: same match, but force target player's reliability to 0.
-        shadow_rels = _override_reliability_for_slot(m, m.slot, 0.0)
+        # Shadow: same match, but overwrite target player's reliability with
+        # the growing curve (opponents / partner keep their real rels so
+        # multipliers stay honest for the rest of the table).
+        shadow_rels = _override_reliability_for_slot(m, m.slot, shadow_rel_pre)
         shadow_imp_tuple = predictor.predict_impacts(
             m.r1, m.r2, m.r3, m.r4,
             m.games1, m.games2, m.winner,
@@ -230,6 +338,12 @@ def simulate(
 
         actual_running += actual_impact
         shadow_running += shadow_impact
+
+        if m.target_reliability is not None:
+            actual_final_rel = float(m.target_reliability)
+
+        raw_match = raw_by_id.get(m.match_id) or {}
+        players_meta = _extract_match_players(raw_match)
 
         rows.append(
             ShadowMatchRow(
@@ -242,8 +356,12 @@ def simulate(
                 target_reliability=m.target_reliability,
                 actual_impact=round(actual_impact, 6),
                 actual_running=round(actual_running, 4),
+                actual_impacts=tuple(round(x, 6) for x in actual_imp_tuple),
                 shadow_impact=round(shadow_impact, 6),
                 shadow_running=round(shadow_running, 4),
+                shadow_impacts=tuple(round(x, 6) for x in shadow_imp_tuple),
+                shadow_reliability=round(shadow_rel_pre, 2),
+                players=players_meta,
             )
         )
         if m.partner_id:
@@ -254,12 +372,30 @@ def simulate(
 
     actual_delta = actual_running - baseline_rating
     shadow_delta = shadow_running - baseline_rating
+    shadow_final_rel = (
+        min(rel_ceiling, max(0, len(rows) - 1) * SHADOW_REL_INC_PER_MATCH)
+        if rows
+        else 0.0
+    )
+    # Fall back to the player's live rel when the match-history endpoint
+    # didn't surface per-match values — that way the summary card shows
+    # "rel 100%" instead of "rel —" for fully-verified players.
+    if actual_final_rel is None and meta.get("current_reliability") is not None:
+        actual_final_rel = float(meta["current_reliability"])
+    if baseline_reliability is None and meta.get("current_reliability") is not None:
+        # We don't know historical rel, but surfacing current rel as the
+        # baseline beats showing nothing — users read this as "here's where
+        # your rel is today, starting point for the shadow trajectory".
+        baseline_reliability = float(meta["current_reliability"])
 
     return ShadowSummary(
         player_id=resolved_id,
         player_name=meta.get("player_name"),
         cutoff_date=cutoff.isoformat(),
         baseline_rating=round(float(baseline_rating), 4),
+        baseline_reliability=(
+            round(baseline_reliability, 2) if baseline_reliability is not None else None
+        ),
         current_rating=(
             round(float(meta["current_rating"]), 4)
             if meta.get("current_rating") is not None
@@ -274,8 +410,12 @@ def simulate(
         matches_used=len(rows),
         actual_delta=round(actual_delta, 4),
         actual_final_rating=round(actual_running, 4),
+        actual_final_reliability=(
+            round(actual_final_rel, 2) if actual_final_rel is not None else None
+        ),
         shadow_delta=round(shadow_delta, 4),
         shadow_final_rating=round(shadow_running, 4),
+        shadow_final_reliability=round(shadow_final_rel, 2),
         higher_of_rating=round(max(baseline_rating, shadow_running), 4),
         partner_diversity=len(partners),
         opponent_diversity=len(opponents),
