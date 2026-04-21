@@ -110,6 +110,9 @@ class DuprCachedPlayer(Base):
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     gender: Mapped[Optional[str]] = mapped_column(String(16))
     age: Mapped[Optional[int]] = mapped_column()
+    # DUPR's "Louisville, CO, USA" display string. Nullable because
+    # some profiles legitimately have no shortAddress set.
+    short_address: Mapped[Optional[str]] = mapped_column(String(128))
 
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 

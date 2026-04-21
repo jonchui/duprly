@@ -117,6 +117,22 @@ def forecast_card(
     name2: Optional[str] = Query(default=None),
     name3: Optional[str] = Query(default=None),
     name4: Optional[str] = Query(default=None),
+    age1: Optional[int] = Query(default=None),
+    age2: Optional[int] = Query(default=None),
+    age3: Optional[int] = Query(default=None),
+    age4: Optional[int] = Query(default=None),
+    gender1: Optional[str] = Query(default=None),
+    gender2: Optional[str] = Query(default=None),
+    gender3: Optional[str] = Query(default=None),
+    gender4: Optional[str] = Query(default=None),
+    loc1: Optional[str] = Query(default=None),
+    loc2: Optional[str] = Query(default=None),
+    loc3: Optional[str] = Query(default=None),
+    loc4: Optional[str] = Query(default=None),
+    img1: Optional[str] = Query(default=None),
+    img2: Optional[str] = Query(default=None),
+    img3: Optional[str] = Query(default=None),
+    img4: Optional[str] = Query(default=None),
     games_played: int = Query(default=2, ge=1, le=3),
     event_label: Optional[str] = Query(default=None),
     venue_label: Optional[str] = Query(default=None),
@@ -132,6 +148,10 @@ def forecast_card(
     scaled to match-totals before feeding the predictor — the fitted model
     was trained on totals, not single-game scores. Pass games_played=3
     for a 2-1 split instead of a sweep.
+
+    The `name{N}`, `age{N}`, `gender{N}`, `loc{N}`, `img{N}` query params
+    are optional — the forecast page populates them from the DUPR search
+    pick so the card mirrors DUPR's own layout.
     """
     if games1 == games2:
         return HTMLResponse(
@@ -144,21 +164,25 @@ def forecast_card(
         r1, r2, r3, r4, g1_total, g2_total,
         rel1=rel1, rel2=rel2, rel3=rel3, rel4=rel4,
     )
-    # Rewrite row.games{1,2} to the single-game scores the user picked — the
-    # card shows "11-7" not "22-14", mirroring how DUPR's match UI labels it.
     row.games1 = games1
     row.games2 = games2
-    names = [name1 or "", name2 or "", name3 or "", name4 or ""]
+    players = [
+        {"name": name1, "age": age1, "gender": gender1, "short_address": loc1, "image_url": img1},
+        {"name": name2, "age": age2, "gender": gender2, "short_address": loc2, "image_url": img2},
+        {"name": name3, "age": age3, "gender": gender3, "short_address": loc3, "image_url": img3},
+        {"name": name4, "age": age4, "gender": gender4, "short_address": loc4, "image_url": img4},
+    ]
     split_note = "2-0 sweep" if games_played <= 2 else "2-1 split"
     return _tr(
         request,
         "partials/dupr_match_card.html",
         {
             "row": row,
-            "names": names,
+            "players": players,
             "is_preview": True,
             "event_label": event_label or "DUPRLY forecast",
             "venue_label": venue_label or f"Score preview · {games1}-{games2} · {split_note}",
+            "delta_source": "local margin-aware model",
         },
     )
 
@@ -237,12 +261,65 @@ def dupr_search_partial(
     accept = (request.headers.get("accept") or "").lower()
     wants_json = "application/json" in accept and "text/html" not in accept
 
+    # region agent log
+    try:
+        import json as _json, time as _time
+        _payload = {
+            "sessionId": "994e0d",
+            "runId": "reset-search-debug",
+            "hypothesisId": "H1",
+            "location": "web/routes/pages.py:dupr_search_partial",
+            "message": "incoming /dupr/search request",
+            "data": {
+                "q_received": q,
+                "q_len": len(q),
+                "slot": slot,
+                "query_string": str(request.url.query),
+                "referer": request.headers.get("referer"),
+                "hx_request": request.headers.get("hx-request"),
+                "hx_target": request.headers.get("hx-target"),
+                "hx_trigger": request.headers.get("hx-trigger"),
+                "hx_trigger_name": request.headers.get("hx-trigger-name"),
+                "short_circuit_empty": len(q) < 2,
+                "wants_json": wants_json,
+            },
+            "timestamp": int(_time.time() * 1000),
+        }
+        with open("/Users/jonchui/code/duprly/.cursor/debug-994e0d.log", "a") as _lf:
+            _lf.write(_json.dumps(_payload) + "\n")
+    except Exception:
+        pass
+    # endregion
+
     if len(q) < 2:
         if wants_json:
             return JSONResponse([])
         return HTMLResponse("")
 
     hits = dupr_live.search(session, query=q, limit=10)
+
+    # region agent log
+    try:
+        import json as _json2, time as _time2
+        _payload2 = {
+            "sessionId": "994e0d",
+            "runId": "reset-search-debug",
+            "hypothesisId": "H5",
+            "location": "web/routes/pages.py:dupr_search_partial:after_search",
+            "message": "dupr_live.search returned",
+            "data": {
+                "q": q,
+                "hit_count": len(hits),
+                "first_hit_name": hits[0].full_name if hits else None,
+                "referer": request.headers.get("referer"),
+            },
+            "timestamp": int(_time2.time() * 1000),
+        }
+        with open("/Users/jonchui/code/duprly/.cursor/debug-994e0d.log", "a") as _lf2:
+            _lf2.write(_json2.dumps(_payload2) + "\n")
+    except Exception:
+        pass
+    # endregion
 
     if wants_json:
         return JSONResponse([
@@ -255,6 +332,10 @@ def dupr_search_partial(
                 "image_url": h.image_url,
                 "source": h.source,
                 "stale": h.stale,
+                "age": h.age,
+                "gender": h.gender,
+                "short_address": h.short_address,
+                "short_dupr_id": h.short_dupr_id,
             }
             for h in hits
         ])

@@ -94,6 +94,26 @@ class TestForecastCardRoute:
         assert r.status_code == 200
         assert "aren't rated" in r.text.lower() or "tie" in r.text.lower()
 
+    def test_card_renders_player_meta(self, client: TestClient):
+        """Age, gender initial, and short_address should all be visible on the card."""
+        r = client.get(
+            "/forecast/card",
+            params={
+                "r1": R1, "r2": R2, "r3": R3, "r4": R4,
+                "games1": 11, "games2": 7,
+                "name1": "Jon Chui",
+                "age1": 41, "gender1": "MALE", "loc1": "Louisville, CO, USA",
+            },
+        )
+        assert r.status_code == 200
+        body = r.text
+        assert "Jon Chui" in body
+        # Sub-line: "41 · M · Louisville, CO, USA"
+        assert "41" in body
+        assert "Louisville, CO, USA" in body
+        # Slot subtitle should be suppressed when rich meta is present.
+        assert "Slot 1" not in body
+
     def test_card_three_game_split_has_different_delta_than_sweep(self, client: TestClient):
         """A 2-1 split vs a 2-0 sweep for the same single-game score should differ."""
         sweep = client.get(

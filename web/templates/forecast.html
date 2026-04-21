@@ -220,6 +220,14 @@
       for (let i = 1; i <= 4; i++) {
         const n = readName(i);
         if (n) params.set('name' + i, n);
+        const age = readVal('#age-' + i);
+        if (age) params.set('age' + i, age);
+        const gen = readVal('#gender-' + i);
+        if (gen) params.set('gender' + i, gen);
+        const loc = readVal('#loc-' + i);
+        if (loc) params.set('loc' + i, loc);
+        const img = readVal('#img-' + i);
+        if (img) params.set('img' + i, img);
       }
 
       // Cancel prior in-flight so we don't flicker stale output.

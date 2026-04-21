@@ -57,8 +57,12 @@
     />
   </div>
   {# Set by fillSlot() when a DUPR result is picked. Enables the "DUPR forecast" CTA
-     and lets the score-picker card show real names. #}
+     and lets the score-picker card show real names + metadata. #}
   <input type="hidden" id="duprid-{{ slot_num }}" name="duprid_{{ slot_num }}" value="" />
   <input type="hidden" id="name-{{ slot_num }}" name="name_{{ slot_num }}" value="" />
+  <input type="hidden" id="age-{{ slot_num }}" name="age_{{ slot_num }}" value="" />
+  <input type="hidden" id="gender-{{ slot_num }}" name="gender_{{ slot_num }}" value="" />
+  <input type="hidden" id="loc-{{ slot_num }}" name="loc_{{ slot_num }}" value="" />
+  <input type="hidden" id="img-{{ slot_num }}" name="img_{{ slot_num }}" value="" />
   <div id="label-{{ slot_num }}" class="mt-1 text-xs text-slate-500 min-h-[1.1em]"></div>
 </div>

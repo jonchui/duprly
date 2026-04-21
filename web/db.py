@@ -55,6 +55,42 @@ def init_db() -> None:
 
     engine = get_engine()
     Base.metadata.create_all(engine)
+    _run_lightweight_migrations(engine)
+
+
+def _run_lightweight_migrations(engine: Engine) -> None:
+    """
+    Idempotent column additions for pre-existing DBs.
+
+    `Base.metadata.create_all()` only creates missing tables; it does not
+    add columns to tables that already exist. We cache DUPR player data
+    (DuprCachedPlayer) and evolve its schema as DUPR exposes more fields.
+    A real Alembic migration is overkill for a cache that can be rebuilt
+    from the live API in seconds, so we just do a safe ALTER TABLE when
+    a known column is missing.
+
+    Columns added here are listed as (table, column, ddl_type).
+    """
+    from sqlalchemy import inspect, text
+
+    migrations: list[tuple[str, str, str]] = [
+        ("dupr_cached_player", "short_address", "VARCHAR(128)"),
+    ]
+
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+
+    with engine.begin() as conn:
+        for table, column, ddl_type in migrations:
+            if table not in existing_tables:
+                continue
+            cols = {c["name"] for c in insp.get_columns(table)}
+            if column in cols:
+                continue
+            # ALTER TABLE ADD COLUMN is supported by both SQLite (>=3.35) and
+            # Postgres. We keep it simple rather than branching per-dialect;
+            # if we ever need DEFAULT values for existing rows, add them here.
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
 
 
 @contextmanager

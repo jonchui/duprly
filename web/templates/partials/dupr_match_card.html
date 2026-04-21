@@ -10,14 +10,22 @@
 
   Required template vars:
     row            — web.services.forecast.ForecastRow (games1, games2, winner, impacts, …)
-    names          — list[str] of 4 player display names (index 0..3 == slot 1..4).
-                     Empty / None entries render as "Player N".
+    players        — list[dict] of 4 player meta dicts (index 0..3 == slot 1..4).
+                     Each: {name, age, gender, short_address, image_url}.
+                     Any missing/empty falls back sensibly (name → "Player N").
     is_preview     — bool; if True we tag the card as "Forecast" instead of "Win/Loss"
                      and do NOT show a fake match id.
     event_label    — optional, e.g. "Forecast · Best-of-3 to 11"
     venue_label    — optional free text shown under event_label.
+    delta_source   — optional label like "DUPR official" / "local model" shown near
+                     the hero delta to be transparent about where the numbers came from.
 #}
-{% macro player_card(idx, name, impact) %}
+{% macro player_card(idx, meta, impact) %}
+  {% set name = meta.get("name") if meta else None %}
+  {% set age = meta.get("age") if meta else None %}
+  {% set gender = meta.get("gender") if meta else None %}
+  {% set short_address = meta.get("short_address") if meta else None %}
+  {% set image_url = meta.get("image_url") if meta else None %}
   {% set raw_delta = impact.delta | round(3) %}
   {% set up = raw_delta > 0 %}
   {% set down = raw_delta < 0 %}
@@ -29,18 +37,32 @@
     {% set delta_str = delta_str.lstrip("0") %}
   {% endif %}
   {% set color = "emerald" if up else ("rose" if down else "slate") %}
+  {% set meta_bits = [] %}
+  {% if age %}{% set _ = meta_bits.append(age|string) %}{% endif %}
+  {% if gender %}{% set _ = meta_bits.append(gender[:1]|upper) %}{% endif %}
+  {% if short_address %}{% set _ = meta_bits.append(short_address) %}{% endif %}
   <div class="rounded-2xl bg-slate-800/80 ring-1 ring-slate-700/60 p-4">
     <div class="flex items-center gap-3 mb-3">
-      <div class="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-slate-400 text-lg shrink-0">
-        <svg viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor" aria-hidden="true">
-          <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.34 0-10 1.67-10 5v3h20v-3c0-3.33-6.66-5-10-5z"/>
-        </svg>
-      </div>
+      {% if image_url %}
+        <img src="{{ image_url }}" alt="" class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-700 shrink-0" loading="lazy" />
+      {% else %}
+        <div class="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-base font-semibold shrink-0">
+          {% if name %}{{ name[:1]|upper }}{% else %}
+            <svg viewBox="0 0 24 24" class="w-5 h-5 text-slate-400" fill="currentColor" aria-hidden="true">
+              <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.34 0-10 1.67-10 5v3h20v-3c0-3.33-6.66-5-10-5z"/>
+            </svg>
+          {% endif %}
+        </div>
+      {% endif %}
       <div class="min-w-0">
         <div class="text-slate-100 text-base font-semibold truncate">
           {{ name if name else "Player " ~ idx }}
         </div>
-        {% if name %}
+        {% if meta_bits %}
+          <div class="text-slate-500 text-xs truncate">
+            {{ meta_bits|join(" · ") }}
+          </div>
+        {% elif name %}
           <div class="text-slate-500 text-xs truncate">
             Slot {{ idx }}
           </div>
@@ -119,8 +141,8 @@
   <div class="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
     {# Team 1 #}
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {{ player_card(1, names[0] if names and names|length > 0 else None, row.impacts[0]) }}
-      {{ player_card(2, names[1] if names and names|length > 1 else None, row.impacts[1]) }}
+      {{ player_card(1, players[0] if players and players|length > 0 else None, row.impacts[0]) }}
+      {{ player_card(2, players[1] if players and players|length > 1 else None, row.impacts[1]) }}
     </div>
 
     {# Center score column #}
@@ -141,8 +163,8 @@
 
     {# Team 2 #}
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {{ player_card(3, names[2] if names and names|length > 2 else None, row.impacts[2]) }}
-      {{ player_card(4, names[3] if names and names|length > 3 else None, row.impacts[3]) }}
+      {{ player_card(3, players[2] if players and players|length > 2 else None, row.impacts[2]) }}
+      {{ player_card(4, players[3] if players and players|length > 3 else None, row.impacts[3]) }}
     </div>
   </div>
 

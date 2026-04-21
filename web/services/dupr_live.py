@@ -153,6 +153,8 @@ def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[Dupr
         _LOG.info("skip cache upsert for id=%s: bad name %r", dupr_id, full_name)
         return None
 
+    short_address = _clean_str(hit.get("shortAddress") or hit.get("shortAddress".lower()))
+
     existing = session.get(DuprCachedPlayer, dupr_id)
     now = datetime.now(timezone.utc)
     if existing is None:
@@ -169,15 +171,15 @@ def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[Dupr
             singles_reliability=ratings.get("singles_reliability"),
             singles_verified=ratings.get("singles_verified", False),
             image_url=hit.get("imageUrl"),
-            gender=hit.get("gender"),
+            gender=_clean_str(hit.get("gender")),
             age=hit.get("age"),
+            short_address=short_address,
             last_synced_at=now,
         )
         session.add(row)
         session.flush()
         return row
 
-    # Update mutable fields
     existing.full_name = full_name
     existing.first_name = first_name or existing.first_name
     existing.last_name = last_name or existing.last_name
@@ -191,10 +193,12 @@ def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[Dupr
             setattr(existing, field, v)
     if hit.get("imageUrl"):
         existing.image_url = hit["imageUrl"]
-    if hit.get("gender"):
-        existing.gender = hit["gender"]
+    if _clean_str(hit.get("gender")):
+        existing.gender = _clean_str(hit.get("gender"))
     if hit.get("age") is not None:
         existing.age = hit["age"]
+    if short_address:
+        existing.short_address = short_address
     existing.last_synced_at = now
     session.flush()
     return existing
@@ -210,6 +214,11 @@ class PlayerSearchHit:
     image_url: Optional[str]
     source: str  # "cache" or "live"
     stale: bool  # true if the cache entry is > CACHE_TTL_DAYS old
+    # Richer metadata used by the DUPR-style match card (age · M · location).
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    short_address: Optional[str] = None
+    short_dupr_id: Optional[str] = None
 
 
 CACHE_TTL_DAYS = 30
@@ -226,6 +235,10 @@ def _cached_to_hit(row: DuprCachedPlayer) -> PlayerSearchHit:
         image_url=row.image_url,
         source="cache",
         stale=age_days > CACHE_TTL_DAYS,
+        age=row.age,
+        gender=row.gender,
+        short_address=row.short_address,
+        short_dupr_id=row.short_dupr_id,
     )
 
 
