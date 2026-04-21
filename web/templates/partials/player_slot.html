@@ -1,0 +1,149 @@
+{#
+  DRY player-slot component shared by /forecast and /reset.
+
+  Required:
+    slot_num           — 1..4 (stable id suffix used by fill_slot_js.html)
+
+  Forecast variant (ratings visible, dupr id hidden):
+    rating_field       — form field name for the rating (e.g. "r1")
+    rel_field          — form field name for the reliability (e.g. "rel1")
+
+  Prefill (new, forecast-only):
+    prefill            — optional dict with server-hydrated values keyed by
+                         { duprid, name, rating, rel, age, gender, loc, img }.
+                         When present, the slot renders pre-filled (name in
+                         search input, avatar/meta in label, hidden inputs
+                         populated) so /forecast/<id>/<id>/<id>/<id> URLs
+                         reproduce the exact state without a JS round-trip.
+
+  Legacy (deprecated — prefer `prefill`):
+    rating_value, rel_value — pre-filled rating/reliability when no prefill.
+
+  Reset / simple variant overrides:
+    show_rating_fields  — bool, default True. Pass False to hide rating/rel inputs.
+    slot_label          — label text above the slot (default "Player N").
+    search_placeholder  — custom placeholder for the search input.
+    dupr_id_name        — name attr for the dupr id input.
+    dupr_id_visible     — bool, default False. When True, renders the DUPR id
+                          as a visible readonly input next to the search.
+    dupr_id_value       — pre-filled dupr id (may be '').
+    dupr_id_placeholder — placeholder when visible.
+#}
+{% set _show_rating = show_rating_fields if show_rating_fields is defined else True %}
+{% set _slot_label = slot_label if slot_label is defined and slot_label else "Player " ~ slot_num %}
+{% set _search_placeholder = search_placeholder if search_placeholder is defined and search_placeholder else "Name, DUPR id (4405492894), or dashboard URL…" %}
+{% set _dupr_id_name = dupr_id_name if dupr_id_name is defined and dupr_id_name else "duprid_" ~ slot_num %}
+{% set _dupr_id_visible = dupr_id_visible if dupr_id_visible is defined else False %}
+{% set _pf = prefill if prefill is defined and prefill else None %}
+{# rating / rel / dupr_id: prefer prefill, fall back to legacy rating_value/rel_value, else empty. #}
+{% set _rating_value = (_pf.rating if _pf and _pf.get("rating") is not none else (rating_value if rating_value is defined and rating_value not in (None, "") else "")) %}
+{% set _rel_value = (_pf.rel if _pf and _pf.get("rel") is not none else (rel_value if rel_value is defined and rel_value not in (None, "") else "")) %}
+{% set _dupr_id_value = (_pf.duprid if _pf and _pf.get("duprid") else (dupr_id_value if dupr_id_value is defined and dupr_id_value else "")) %}
+{% set _dupr_id_placeholder = dupr_id_placeholder if dupr_id_placeholder is defined and dupr_id_placeholder else "DUPR id" %}
+{% set _name_value = (_pf.name if _pf and _pf.get("name") else "") %}
+{% set _age_value = (_pf.age if _pf and _pf.get("age") is not none else "") %}
+{% set _gender_value = (_pf.gender if _pf and _pf.get("gender") else "") %}
+{% set _loc_value = (_pf.loc if _pf and _pf.get("loc") else "") %}
+{% set _img_value = (_pf.img if _pf and _pf.get("img") else "") %}
+{# Build the meta label bits (age · M · location) once so server-render and
+   JS fillSlot() agree on layout. #}
+{% set _meta_bits = [] %}
+{% if _age_value != "" %}{% set _ = _meta_bits.append(_age_value|string) %}{% endif %}
+{% if _gender_value %}{% set _ = _meta_bits.append(_gender_value[:1]|upper) %}{% endif %}
+{% if _loc_value %}{% set _ = _meta_bits.append(_loc_value) %}{% endif %}
+<div class="relative">
+  <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+    {{ _slot_label }}
+  </label>
+  <div class="flex gap-2 items-stretch">
+    <div class="relative flex-1">
+      <input
+        type="text"
+        name="q"
+        placeholder="{{ _search_placeholder }}"
+        class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+        id="search-{{ slot_num }}"
+        value="{{ _name_value }}"
+        hx-get="/dupr/search"
+        hx-trigger="input changed delay:300ms, keyup[key==='Enter']"
+        hx-target="#results-{{ slot_num }}"
+        hx-vals='{"slot": {{ slot_num }}}'
+        hx-indicator="#spinner-{{ slot_num }}"
+        autocomplete="off"
+        form="__never-submit"
+      />
+      <div id="spinner-{{ slot_num }}" class="htmx-indicator absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-emerald-400 pointer-events-none">
+        searching DUPR…
+      </div>
+      <div id="results-{{ slot_num }}" class="relative"></div>
+    </div>
+    {% if _show_rating %}
+    <input
+      type="number"
+      step="0.01"
+      min="1.0"
+      max="8.5"
+      required
+      name="{{ rating_field }}"
+      id="{{ rating_field }}"
+      placeholder="rating"
+      value="{{ ('%.2f' | format(_rating_value)) if _rating_value not in (none, '', 0) else '' }}"
+      class="w-24 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-2 text-sm mono"
+    />
+    <input
+      type="number"
+      step="1"
+      min="0"
+      max="100"
+      name="{{ rel_field }}"
+      id="{{ rel_field }}"
+      placeholder="rel"
+      value="{{ (_rel_value | round(0) | int) if _rel_value not in (none, '') else '' }}"
+      class="w-16 bg-slate-950 ring-1 ring-slate-700 rounded px-2 py-2 text-sm mono"
+    />
+    {% endif %}
+    {% if _dupr_id_visible %}
+    <input
+      type="text"
+      name="{{ _dupr_id_name }}"
+      id="duprid-{{ slot_num }}"
+      placeholder="{{ _dupr_id_placeholder }}"
+      required
+      class="w-40 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-2 text-sm mono"
+      value="{{ _dupr_id_value }}"
+    />
+    {% endif %}
+  </div>
+  {# Hidden inputs the score-preview card reads; pre-populated on server
+     when `prefill` is provided so the card can render immediately without
+     a JS round-trip. fillSlot() keeps writing into these when the user
+     picks a different player from the search dropdown. #}
+  {% if not _dupr_id_visible %}
+  <input type="hidden" id="duprid-{{ slot_num }}" name="{{ _dupr_id_name }}" value="{{ _dupr_id_value }}" />
+  {% endif %}
+  <input type="hidden" id="name-{{ slot_num }}"   name="name_{{ slot_num }}"   value="{{ _name_value }}" />
+  <input type="hidden" id="age-{{ slot_num }}"    name="age_{{ slot_num }}"    value="{{ _age_value }}" />
+  <input type="hidden" id="gender-{{ slot_num }}" name="gender_{{ slot_num }}" value="{{ _gender_value }}" />
+  <input type="hidden" id="loc-{{ slot_num }}"    name="loc_{{ slot_num }}"    value="{{ _loc_value }}" />
+  <input type="hidden" id="img-{{ slot_num }}"    name="img_{{ slot_num }}"    value="{{ _img_value }}" />
+  <div id="label-{{ slot_num }}" class="mt-1 text-xs text-slate-500 min-h-[1.1em]">
+    {% if _dupr_id_value and _name_value %}
+      {# Server-rendered "filled" label mirrors the one fillSlot() paints.
+         Keep these in sync when editing the format. #}
+      {% if _pf and _pf.get("duprid") %}
+        <a href="/dupr/player/{{ _pf.duprid }}" class="hover:text-emerald-300 hover:underline">
+          <span class="text-emerald-300">●</span>
+          {{ _name_value }}
+          <span class="text-slate-600">· {{ _dupr_id_value }}</span>
+          {% if _meta_bits %}
+            <span class="text-slate-600">· {{ _meta_bits | join(" · ") }}</span>
+          {% endif %}
+        </a>
+      {% else %}
+        <span class="text-emerald-300">●</span>
+        {{ _name_value }}
+        <span class="text-slate-600">· {{ _dupr_id_value }}</span>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>

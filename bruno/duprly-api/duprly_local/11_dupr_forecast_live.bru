@@ -1,0 +1,34 @@
+meta {
+  name: 11 · DUPR forecast (LIVE api.dupr.gg)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{duprly_base}}/api/dupr/forecast
+  body: json
+}
+
+body:json {
+  {
+    "teams": [
+      { "player1_id": 4405492894, "player2_id": 7511597513 },
+      { "player1_id": 7270240621, "player2_id": 5651921565 }
+    ],
+    "winning_score": 11,
+    "event_format": "DOUBLES",
+    "match_source": "CLUB",
+    "match_type": "SIDE_ONLY",
+    "game_count": 1
+  }
+}
+
+docs {
+  Live DUPR call (no use_fixtures). Requires DUPR_USERNAME/DUPR_PASSWORD
+  in .env. If DUPR's API is down you'll see HTTP 503 with a detail message
+  pointing at use_fixtures=true fallback.
+  
+  Compare the response against `10_dupr_forecast_fixture` — the structure
+  should match exactly. Only the numeric deltas will differ based on the
+  current DUPR ratings of the 4 players.
+}

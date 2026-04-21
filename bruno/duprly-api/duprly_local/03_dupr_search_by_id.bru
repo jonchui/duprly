@@ -1,0 +1,23 @@
+meta {
+  name: 03 · DUPR search (by numeric id)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{duprly_base}}/api/dupr/search?q=4405492894&limit=5&live=true
+}
+
+query {
+  q: 4405492894
+  limit: 5
+  live: true
+}
+
+docs {
+  Paste either a numeric DUPR id (long) or a dashboard URL.
+  The URL form also works: ?q=https%3A%2F%2Fdashboard.dupr.com%2Fdashboard%2Fplayer%2F4405492894
+  
+  Numeric ids force a direct /player/{id} DUPR lookup which always succeeds
+  even when /search filters the caller's own profile (see T-002).
+}

@@ -1,0 +1,28 @@
+{#
+  Standalone-HTML wrapper around `dupr_match_card.html` so the partial
+  renders cleanly as its own page (Tailwind loaded, max-w container).
+
+  Used by /forecast/card?demo=1 for screenshots / PR previews / design
+  reviews — if you point a browser at the raw partial it arrives
+  unstyled because Tailwind only loads on pages extending base.html.
+#}
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Forecast card · duprly</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </head>
+  <body class="min-h-full bg-slate-950 text-slate-100 antialiased p-6">
+    <div class="max-w-4xl mx-auto">
+      <div class="mb-4 text-xs uppercase tracking-wider text-slate-500">
+        /forecast/card · demo wrapper (Tailwind loaded for standalone screenshots)
+      </div>
+      {% include "partials/dupr_match_card.html" %}
+    </div>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+meta {
+  name: 10 · DUPR /match/expected-score (raw)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{dupr_base}}/match/{{dupr_version}}/expected-score
+  body: json
+}
+
+headers {
+  Authorization: Bearer {{dupr_bearer}}
+  Content-Type: application/json
+  Accept: application/json
+  Origin: https://dashboard.dupr.com
+  Referer: https://dashboard.dupr.com/
+}
+
+body:json {
+  {
+    "eventFormat": "DOUBLES",
+    "gameCount": 1,
+    "matchSource": "CLUB",
+    "matchType": "SIDE_ONLY",
+    "teams": [
+      { "player1Id": 4405492894, "player2Id": 7511597513 },
+      { "player1Id": 7270240621, "player2Id": 5651921565 }
+    ],
+    "winningScore": 11
+  }
+}
+
+docs {
+  Raw DUPR expected-score call. Response: team.score (predicted losing-side
+  game count) per team. No rating impacts, no win probability — use
+  /match/forecast for those.
+  
+  Canonical fixture: tests/fixtures/dupr_api/06-expected-score-to-11.response.json
+}

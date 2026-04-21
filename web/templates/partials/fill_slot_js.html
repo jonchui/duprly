@@ -1,0 +1,67 @@
+<script>
+  // Called from the DUPR search dropdown when a user clicks a result.
+  // Populates the rating + reliability inputs for the slot, then hides the dropdown.
+  // `meta` is an optional object with DUPR profile fields (age, gender, shortAddress, imageUrl)
+  // — used by the score-picker card to render a richer DUPR-style row.
+  function fillSlot(slot, duprId, fullName, rating, reliability, meta) {
+    const ratingInput = document.querySelector('#r' + slot);
+    const relInput = document.querySelector('#rel' + slot);
+    const searchInput = document.querySelector('#search-' + slot);
+    const resultsBox = document.querySelector('#results-' + slot);
+    const label = document.querySelector('#label-' + slot);
+    const idInput = document.querySelector('#duprid-' + slot);
+    const nameInput = document.querySelector('#name-' + slot);
+    const ageInput = document.querySelector('#age-' + slot);
+    const genderInput = document.querySelector('#gender-' + slot);
+    const locInput = document.querySelector('#loc-' + slot);
+    const imgInput = document.querySelector('#img-' + slot);
+
+    const m = meta || {};
+
+    if (ratingInput && rating != null && rating !== 0) ratingInput.value = Number(rating).toFixed(2);
+    if (relInput && reliability != null) relInput.value = Math.round(reliability);
+    if (searchInput) searchInput.value = fullName || '';
+    if (resultsBox) resultsBox.innerHTML = '';
+    if (idInput) idInput.value = duprId || '';
+    if (nameInput) nameInput.value = fullName || '';
+    if (ageInput) ageInput.value = m.age != null ? String(m.age) : '';
+    if (genderInput) genderInput.value = m.gender || '';
+    if (locInput) locInput.value = m.shortAddress || '';
+    if (imgInput) imgInput.value = m.imageUrl || '';
+    // Label mirrors the server-rendered version in player_slot.html: a link
+    // to /dupr/player/<id> with "[●] Name · <dupr id> · <age · M · location>".
+    // Keeping the two renderers aligned means a page reload from a shared
+    // /forecast/<id>/<id>/<id>/<id> URL looks identical to the JS-filled
+    // state that produced that URL.
+    if (label) {
+      if (duprId) {
+        const locBits = [
+          m.age ? String(m.age) : null,
+          m.gender ? String(m.gender).charAt(0).toUpperCase() : null,
+          m.shortAddress || null,
+        ].filter(Boolean);
+        const metaLine = locBits.length ? ' <span class="text-slate-600">· ' + locBits.join(' · ') + '</span>' : '';
+        const inner = '<span class="text-emerald-300">●</span> ' + (fullName || '')
+          + ' <span class="text-slate-600">· ' + duprId + '</span>' + metaLine;
+        label.innerHTML = '<a href="/dupr/player/' + encodeURIComponent(duprId) + '" class="hover:text-emerald-300 hover:underline">' + inner + '</a>';
+      } else {
+        label.innerHTML = '';
+      }
+    }
+    // Let listeners (e.g. /forecast DUPR-official CTA, score-picker card) re-evaluate.
+    document.dispatchEvent(new CustomEvent('duprly:slot-filled', {
+      detail: { slot, duprId, fullName, rating, reliability, meta: m },
+    }));
+  }
+
+  // Close search dropdowns on outside click.
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('[id^="results-"]').forEach(function (box) {
+      const slot = box.id.replace('results-', '');
+      const searchBox = document.querySelector('#search-' + slot);
+      if (!box.contains(e.target) && e.target !== searchBox) {
+        box.innerHTML = '';
+      }
+    });
+  });
+</script>
