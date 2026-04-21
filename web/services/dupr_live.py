@@ -229,8 +229,16 @@ def _cached_to_hit(row: DuprCachedPlayer) -> PlayerSearchHit:
     )
 
 
-_SHORT_ID_RE = __import__("re").compile(r"^[A-Z0-9]{6}$")
-_NUMERIC_ID_RE = __import__("re").compile(r"^\d{6,}$")
+import re as _re
+
+_SHORT_ID_RE = _re.compile(r"^[A-Z0-9]{6}$")
+_NUMERIC_ID_RE = _re.compile(r"^\d{6,}$")
+# Matches `https://dashboard.dupr.com/dashboard/player/4405492894` and friends:
+# allow any dupr.com host, any path, so long as /player/<digits> appears.
+_DUPR_URL_ID_RE = _re.compile(
+    r"(?:https?://)?(?:\w+\.)*dupr\.com/[^\s?#]*?/player/(\d+)",
+    _re.IGNORECASE,
+)
 
 
 def _looks_like_short_id(q: str) -> bool:
@@ -239,6 +247,12 @@ def _looks_like_short_id(q: str) -> bool:
 
 def _looks_like_numeric_id(q: str) -> bool:
     return bool(_NUMERIC_ID_RE.match(q))
+
+
+def _extract_numeric_id_from_url(q: str) -> Optional[str]:
+    """Return the numeric DUPR id if `q` is a dashboard.dupr.com player URL."""
+    m = _DUPR_URL_ID_RE.search(q)
+    return m.group(1) if m else None
 
 
 def search(
@@ -255,6 +269,14 @@ def search(
     q = (query or "").strip()
     if not q:
         return []
+
+    # If the user pastes a dashboard URL like
+    #   https://dashboard.dupr.com/dashboard/player/4405492894
+    # normalize to the numeric id. This is the *only* reliable way to hit
+    # profiles with shortAddress=null — DUPR's /search silently drops them.
+    url_id = _extract_numeric_id_from_url(q)
+    if url_id:
+        q = url_id
 
     is_short_id = _looks_like_short_id(q)
     is_numeric_id = _looks_like_numeric_id(q)

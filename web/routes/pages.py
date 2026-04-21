@@ -6,7 +6,7 @@ import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -123,17 +123,48 @@ def jupr_search(
 
 # ---- DUPR search (HTMX partial for forecast auto-fill) -----------------------
 
-@router.get("/dupr/search", response_class=HTMLResponse)
+@router.get("/dupr/search")
 def dupr_search_partial(
     request: Request,
     q: str = Query(default=""),
     slot: int = Query(default=1, ge=1, le=4),
     session: Session = Depends(get_session),
 ):
+    """
+    Content-negotiated DUPR search.
+
+    - Accept: application/json → returns a JSON array of hits (same shape as
+      /api/dupr/search). Use this for scripts, SDKs, or sanity-checking
+      the underlying hybrid search.
+    - otherwise → returns the HTMX autocomplete HTML partial consumed by
+      the forecast/goal/reset player pickers.
+    """
     q = (q or "").strip()
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept and "text/html" not in accept
+
     if len(q) < 2:
+        if wants_json:
+            return JSONResponse([])
         return HTMLResponse("")
+
     hits = dupr_live.search(session, query=q, limit=10)
+
+    if wants_json:
+        return JSONResponse([
+            {
+                "dupr_id": h.dupr_id,
+                "full_name": h.full_name,
+                "doubles": h.doubles,
+                "doubles_reliability": h.doubles_reliability,
+                "singles": h.singles,
+                "image_url": h.image_url,
+                "source": h.source,
+                "stale": h.stale,
+            }
+            for h in hits
+        ])
+
     return _tr(
         request,
         "partials/dupr_search.html",

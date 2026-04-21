@@ -26,8 +26,11 @@
   </div>
   <div class="text-xs text-slate-500 mt-1">
     {% if live_available %}
-      Checked local cache and live DUPR. Try a partial name (e.g. first name only)
-      or paste a DUPR id directly into the rating box at right.
+      Checked local cache and live DUPR. Note: DUPR's name search silently
+      drops profiles with a missing location, so paste your
+      <span class="mono">dashboard.dupr.com</span> URL or numeric id
+      (e.g. <span class="mono">4405492894</span>) directly here for a
+      guaranteed lookup.
     {% else %}
       Local cache only — set <span class="mono">DUPR_USERNAME</span> and
       <span class="mono">DUPR_PASSWORD</span> in <span class="mono">.env</span>
