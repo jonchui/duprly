@@ -1,0 +1,19 @@
+meta {
+  name: 05 · DUPR refresh player (live → cache)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{duprly_base}}/api/dupr/players/4405492894/refresh
+  body: none
+}
+
+headers {
+  Authorization: Bearer {{jupr_write_api_key}}
+}
+
+docs {
+  Forces a GET /player/v1.0/{id} against live DUPR and upserts the result
+  into the local cache. Requires JUPR_WRITE_API_KEY if configured.
+}
