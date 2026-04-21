@@ -1,0 +1,56 @@
+{#
+  A single player slot — search DUPR for a name, or type the rating directly.
+  Required vars:
+    slot_num       — 1..4
+    rating_field   — form field name for the rating (e.g. "r1")
+    rel_field      — form field name for the reliability (e.g. "rel1")
+    rating_value   — pre-filled rating value (may be '')
+    rel_value      — pre-filled reliability value (may be '')
+#}
+<div class="relative">
+  <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+    Player {{ slot_num }}
+  </label>
+  <div class="flex gap-2 items-stretch">
+    <div class="relative flex-1">
+      <input
+        type="text"
+        name="q"
+        placeholder="Search DUPR by name…"
+        class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+        id="search-{{ slot_num }}"
+        hx-get="/dupr/search"
+        hx-trigger="keyup changed delay:300ms"
+        hx-target="#results-{{ slot_num }}"
+        hx-vals='{"slot": {{ slot_num }}}'
+        autocomplete="off"
+        form="__never-submit"
+      />
+      <div id="results-{{ slot_num }}" class="relative"></div>
+    </div>
+    <input
+      type="number"
+      step="0.01"
+      min="1.0"
+      max="8.5"
+      required
+      name="{{ rating_field }}"
+      id="{{ rating_field }}"
+      placeholder="rating"
+      value="{{ rating_value if rating_value not in (none, '') else '' }}"
+      class="w-24 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-2 text-sm mono"
+    />
+    <input
+      type="number"
+      step="1"
+      min="0"
+      max="100"
+      name="{{ rel_field }}"
+      id="{{ rel_field }}"
+      placeholder="rel"
+      value="{{ rel_value if rel_value not in (none, '') else '' }}"
+      class="w-16 bg-slate-950 ring-1 ring-slate-700 rounded px-2 py-2 text-sm mono"
+    />
+  </div>
+  <div id="label-{{ slot_num }}" class="mt-1 text-xs text-slate-500 min-h-[1.1em]"></div>
+</div>

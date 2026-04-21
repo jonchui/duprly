@@ -16,9 +16,12 @@ from sqlalchemy.orm import Session
 from web.auth import require_write_key
 from web.db import get_session
 from web.models import JuprPlayer
+from web.services import dupr_live
 from web.services import forecast as forecast_svc
 from web.services import fupr as fupr_svc
+from web.services import goal as goal_svc
 from web.services import jupr as jupr_svc
+from web.services import shadow as shadow_svc
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -30,7 +33,7 @@ class ForecastRequest(BaseModel):
     r2: float = Field(..., ge=1.0, le=8.5)
     r3: float = Field(..., ge=1.0, le=8.5)
     r4: float = Field(..., ge=1.0, le=8.5)
-    target: int = Field(11, ge=7, le=21)
+    target: int = Field(22, ge=14, le=33, description="Winner's minimum match-total (sum of game points)")
     rel1: Optional[float] = None
     rel2: Optional[float] = None
     rel3: Optional[float] = None
@@ -335,3 +338,237 @@ def api_fupr_vote(
 @router.get("/health")
 def health():
     return {"status": "ok", "service": "duprly-web"}
+
+
+# ---------- DUPR player search (hybrid: cache + optional live) ----------------
+
+class DuprHitDTO(BaseModel):
+    dupr_id: str
+    full_name: str
+    doubles: Optional[float] = None
+    doubles_reliability: Optional[float] = None
+    singles: Optional[float] = None
+    image_url: Optional[str] = None
+    source: str
+    stale: bool
+
+
+@router.get("/dupr/search", response_model=List[DuprHitDTO])
+def api_dupr_search(
+    q: str = Query(..., min_length=1, max_length=64),
+    limit: int = Query(default=15, ge=1, le=50),
+    live: bool = Query(default=True, description="Fall back to live DUPR if configured"),
+    session: Session = Depends(get_session),
+):
+    hits = dupr_live.search(session, query=q, limit=limit, live_fallback=live)
+    return [
+        DuprHitDTO(
+            dupr_id=h.dupr_id,
+            full_name=h.full_name,
+            doubles=h.doubles,
+            doubles_reliability=h.doubles_reliability,
+            singles=h.singles,
+            image_url=h.image_url,
+            source=h.source,
+            stale=h.stale,
+        )
+        for h in hits
+    ]
+
+
+@router.get("/dupr/players/{dupr_id}", response_model=DuprHitDTO)
+def api_dupr_get(dupr_id: str, session: Session = Depends(get_session)):
+    h = dupr_live.get_by_id(session, dupr_id)
+    if h is None:
+        raise HTTPException(status_code=404, detail="not in cache — try /refresh")
+    return DuprHitDTO(
+        dupr_id=h.dupr_id,
+        full_name=h.full_name,
+        doubles=h.doubles,
+        doubles_reliability=h.doubles_reliability,
+        singles=h.singles,
+        image_url=h.image_url,
+        source=h.source,
+        stale=h.stale,
+    )
+
+
+@router.post(
+    "/dupr/players/{dupr_id}/refresh",
+    response_model=DuprHitDTO,
+    dependencies=[Depends(require_write_key)],
+)
+def api_dupr_refresh(dupr_id: str, session: Session = Depends(get_session)):
+    try:
+        h = dupr_live.refresh(session, dupr_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    if h is None:
+        raise HTTPException(status_code=404, detail="DUPR returned no player for that id")
+    return DuprHitDTO(
+        dupr_id=h.dupr_id,
+        full_name=h.full_name,
+        doubles=h.doubles,
+        doubles_reliability=h.doubles_reliability,
+        singles=h.singles,
+        image_url=h.image_url,
+        source=h.source,
+        stale=h.stale,
+    )
+
+
+# ---------- Goal forecast ("what do I have to win?") --------------------------
+
+class GoalRequest(BaseModel):
+    me_slot: int = Field(..., ge=1, le=4)
+    r1: float = Field(..., ge=1.0, le=8.5)
+    r2: float = Field(..., ge=1.0, le=8.5)
+    r3: float = Field(..., ge=1.0, le=8.5)
+    r4: float = Field(..., ge=1.0, le=8.5)
+    target_delta: float = Field(..., ge=-1.0, le=1.0, description="e.g. +0.05 to gain five points")
+    target: int = Field(22, ge=14, le=33, description="Winner's minimum match-total (sum of game points)")
+    rel1: Optional[float] = None
+    rel2: Optional[float] = None
+    rel3: Optional[float] = None
+    rel4: Optional[float] = None
+
+
+class GoalRowDTO(BaseModel):
+    games1: int
+    games2: int
+    winner: int
+    my_delta: float
+    my_post_rating: float
+    hits_goal: bool
+    gap_to_goal: float
+
+
+class GoalForecastDTO(BaseModel):
+    me_slot: int
+    my_pre_rating: float
+    target_delta: float
+    best_case_delta: float
+    worst_case_delta: float
+    hits_goal: bool
+    best_score: Optional[str]
+    worst_score: Optional[str]
+    rows: List[GoalRowDTO]
+
+
+@router.post("/goal", response_model=GoalForecastDTO, summary="Reverse-forecast: what do I have to win?")
+def api_goal(req: GoalRequest):
+    try:
+        forecast = goal_svc.compute(
+            me_slot=req.me_slot,
+            r1=req.r1, r2=req.r2, r3=req.r3, r4=req.r4,
+            target_delta=req.target_delta,
+            target=req.target,
+            rel1=req.rel1, rel2=req.rel2, rel3=req.rel3, rel4=req.rel4,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return GoalForecastDTO(
+        me_slot=forecast.me_slot,
+        my_pre_rating=forecast.my_pre_rating,
+        target_delta=forecast.target_delta,
+        best_case_delta=forecast.best_case_delta,
+        worst_case_delta=forecast.worst_case_delta,
+        hits_goal=forecast.hits_goal,
+        best_score=forecast.best_score,
+        worst_score=forecast.worst_score,
+        rows=[
+            GoalRowDTO(
+                games1=r.games1,
+                games2=r.games2,
+                winner=r.winner,
+                my_delta=r.my_delta,
+                my_post_rating=r.my_post_rating,
+                hits_goal=r.hits_goal,
+                gap_to_goal=r.gap_to_goal,
+            )
+            for r in forecast.rows
+        ],
+    )
+
+
+# ---------- Shadow reset simulator -------------------------------------------
+
+class ShadowResetRequest(BaseModel):
+    dupr_id: str = Field(..., min_length=1, max_length=64)
+    baseline_rating: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=8.5,
+        description=(
+            "Your pre-reset rating (e.g. what DUPR showed for you on/before "
+            "`cutoff_date`). If omitted we use the pre-match rating of your "
+            "earliest eligible match, or your current doubles rating."
+        ),
+    )
+    cutoff_date: Optional[str] = Field(
+        default=None,
+        description="ISO date (YYYY-MM-DD). Defaults to 2024-04-16.",
+    )
+
+
+class ShadowMatchRowDTO(BaseModel):
+    match_id: str
+    event_date: Optional[str]
+    r1: float
+    r2: float
+    r3: float
+    r4: float
+    games1: int
+    games2: int
+    winner: int
+    slot: int
+    target_pre_rating: float
+    target_reliability: Optional[float]
+    actual_impact: float
+    actual_running: float
+    shadow_impact: float
+    shadow_running: float
+
+
+class ShadowResetDTO(BaseModel):
+    player_id: str
+    player_name: Optional[str]
+    cutoff_date: str
+    baseline_rating: float
+    current_rating: Optional[float]
+    current_reliability: Optional[float]
+    matches_since_cutoff: int
+    matches_used: int
+    actual_delta: float
+    actual_final_rating: float
+    shadow_delta: float
+    shadow_final_rating: float
+    higher_of_rating: float
+    partner_diversity: int
+    opponent_diversity: int
+    rows: List[ShadowMatchRowDTO]
+
+
+@router.post(
+    "/reset/shadow",
+    response_model=ShadowResetDTO,
+    summary="Shadow-reset simulator: replay matches since cutoff at 0% reliability",
+)
+def api_reset_shadow(req: ShadowResetRequest):
+    from datetime import date as _date
+
+    cutoff = None
+    if req.cutoff_date:
+        try:
+            cutoff = _date.fromisoformat(req.cutoff_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="cutoff_date must be YYYY-MM-DD")
+    try:
+        summary = shadow_svc.simulate(
+            dupr_id=req.dupr_id,
+            baseline_rating=req.baseline_rating,
+            cutoff=cutoff,
+        )
+    except shadow_svc.ShadowUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return ShadowResetDTO(**summary.to_dict())

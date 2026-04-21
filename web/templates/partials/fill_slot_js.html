@@ -1,0 +1,28 @@
+<script>
+  // Called from the DUPR search dropdown when a user clicks a result.
+  // Populates the rating + reliability inputs for the slot, then hides the dropdown.
+  function fillSlot(slot, duprId, fullName, rating, reliability) {
+    const ratingInput = document.querySelector('#r' + slot);
+    const relInput = document.querySelector('#rel' + slot);
+    const searchInput = document.querySelector('#search-' + slot);
+    const resultsBox = document.querySelector('#results-' + slot);
+    const label = document.querySelector('#label-' + slot);
+
+    if (ratingInput && rating != null && rating !== 0) ratingInput.value = Number(rating).toFixed(2);
+    if (relInput && reliability != null) relInput.value = Math.round(reliability);
+    if (searchInput) searchInput.value = fullName || '';
+    if (label) label.innerHTML = '<span class="text-emerald-300">● </span>' + (fullName || '') + ' <span class="text-slate-600">· ' + duprId + '</span>';
+    if (resultsBox) resultsBox.innerHTML = '';
+  }
+
+  // Close search dropdowns on outside click.
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('[id^="results-"]').forEach(function (box) {
+      const slot = box.id.replace('results-', '');
+      const searchBox = document.querySelector('#search-' + slot);
+      if (!box.contains(e.target) && e.target !== searchBox) {
+        box.innerHTML = '';
+      }
+    });
+  });
+</script>

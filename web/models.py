@@ -79,6 +79,41 @@ class JuprGame(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class DuprCachedPlayer(Base):
+    """
+    A denormalized cache of a DUPR player for fast search + auto-fill in the
+    forecast UI. Populated via:
+      - POST /api/dupr/players/{id}/refresh (live fetch if creds configured)
+      - scripts/seed_cached_players.py (bootstrap from existing dupr.sqlite)
+    """
+
+    __tablename__ = "dupr_cached_player"
+    __table_args__ = (
+        Index("ix_dupr_cached_name", "full_name"),
+    )
+
+    # Use DUPR's own id (stringified) as our primary key — stable and unique.
+    dupr_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    full_name: Mapped[str] = mapped_column(String(128))
+    first_name: Mapped[Optional[str]] = mapped_column(String(64))
+    last_name: Mapped[Optional[str]] = mapped_column(String(64))
+    short_dupr_id: Mapped[Optional[str]] = mapped_column(String(16), index=True)
+
+    doubles: Mapped[Optional[float]] = mapped_column(Float)
+    doubles_reliability: Mapped[Optional[float]] = mapped_column(Float)
+    doubles_verified: Mapped[Optional[bool]] = mapped_column(default=False)
+
+    singles: Mapped[Optional[float]] = mapped_column(Float)
+    singles_reliability: Mapped[Optional[float]] = mapped_column(Float)
+    singles_verified: Mapped[Optional[bool]] = mapped_column(default=False)
+
+    image_url: Mapped[Optional[str]] = mapped_column(String(512))
+    gender: Mapped[Optional[str]] = mapped_column(String(16))
+    age: Mapped[Optional[int]] = mapped_column()
+
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class FuprVote(Base):
     """A single community-submitted estimate of a player's "true" rating."""
 

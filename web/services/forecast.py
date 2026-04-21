@@ -92,21 +92,45 @@ def forecast_one(
     )
 
 
-def _generate_candidate_scores(target: int = 11) -> List[tuple[int, int]]:
+def _generate_candidate_scores(target: int = 22) -> List[tuple[int, int]]:
     """
-    Generate every plausible final score for a win-by-2 game to `target`.
+    Generate every plausible *match-total* score.
 
-    For target=11 we emit:
-      Team1 wins: 11-0 .. 11-9, then 12-10, 13-11, 14-12, 15-13 (cap the tail)
-      Team2 wins: mirror
+    Important nuance: the fitted DuprPredictor was trained on match totals
+    (sum of game-points across a best-of-3 match, e.g. an 11-7, 11-6 sweep
+    becomes games1=22, games2=13), not single-game scores. See
+    scripts/extract_match_rating_data.py where `games_from_team` sums
+    game1+game2+game3.
+
+    So we enumerate:
+      - Team-1 sweeps: (22..30, 0..L) with L = winner - 2.
+      - Team-1 2-1 splits: longer winner totals where both teams reached 11
+        in at least two games.
+      - Mirror for team 2.
+
+    `target` here is the winner's *minimum* match-total (22 for 2 games to 11).
     """
+    winner_totals = [target + i for i in (0, 1, 2, 3, 4, 6, 8, 11)]
+    # Loser totals spaced to show interesting rating deltas; we clamp to
+    # max = winner - 2 (win-by-2 rule at the match level is approximate).
+    loser_totals_base = [0, 2, 5, 8, 10, 13, 15, 17, 18, 19, 20, 22, 24, 26]
+
     scores: List[tuple[int, int]] = []
-    for losing in range(0, target - 1):  # 0..9 for target=11
-        scores.append((target, losing))
-    # Win-by-2 tail up to target+4
-    for winning in range(target + 1, target + 5):
-        scores.append((winning, winning - 2))
-    mirrored = [(b, a) for (a, b) in scores]
+    seen: set[tuple[int, int]] = set()
+    for w in winner_totals:
+        for l in loser_totals_base + [w - 2]:
+            if 0 <= l <= w - 2:
+                pair = (w, l)
+                if pair not in seen:
+                    seen.add(pair)
+                    scores.append(pair)
+    # Mirror for team 2 wins.
+    mirrored = []
+    for (w, l) in scores:
+        m = (l, w)
+        if m not in seen:
+            seen.add(m)
+            mirrored.append(m)
     return scores + mirrored
 
 
@@ -115,7 +139,7 @@ def forecast_matrix(
     r2: float,
     r3: float,
     r4: float,
-    target: int = 11,
+    target: int = 22,
     rel1: Optional[float] = None,
     rel2: Optional[float] = None,
     rel3: Optional[float] = None,

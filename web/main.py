@@ -22,6 +22,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
+# Load .env before any modules that read env vars (DUPR creds, JUPR_WRITE_API_KEY).
+# Vercel ignores this because Vercel injects env vars at runtime, so it's a no-op
+# in production.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from web.db import init_db
 from web.routes.api import router as api_router
 from web.routes.pages import router as pages_router
