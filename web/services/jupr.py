@@ -106,6 +106,44 @@ def create_player(
     return p
 
 
+def find_or_create_by_dupr_id(
+    session: Session,
+    *,
+    dupr_id: str,
+    full_name: str,
+    seed_rating: float = 3.0,
+    seed_reliability: float = 50.0,
+) -> JuprPlayer:
+    """
+    Look up a JuprPlayer by DUPR id, or create one seeded with the DUPR
+    rating/reliability. Used by the forecast card's "Log to JUPR" button
+    so a user can record a real match they just played (with four DUPR-
+    searched players) without manually creating each player first.
+
+    Mutation policy: we intentionally do NOT overwrite an existing
+    player's seed rating — that row is the canonical source of truth
+    for their JUPR history. If the name ever drifts, that's OK too;
+    the DUPR id is the stable link.
+    """
+    dupr_id = str(dupr_id).strip()
+    if not dupr_id:
+        raise ValueError("dupr_id is required")
+    existing = session.execute(
+        select(JuprPlayer).where(JuprPlayer.dupr_id == dupr_id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    p = JuprPlayer(
+        full_name=full_name,
+        seed_rating=seed_rating,
+        seed_reliability=seed_reliability,
+        dupr_id=dupr_id,
+    )
+    session.add(p)
+    session.flush()
+    return p
+
+
 def record_game(
     session: Session,
     team1: List[int],

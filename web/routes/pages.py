@@ -221,6 +221,93 @@ def forecast_card(
     )
 
 
+@router.post("/forecast/log", response_class=HTMLResponse)
+def forecast_log(
+    request: Request,
+    session: Session = Depends(get_session),
+    duprid_1: str = Form(..., alias="duprid1"),
+    duprid_2: str = Form(..., alias="duprid2"),
+    duprid_3: str = Form(..., alias="duprid3"),
+    duprid_4: str = Form(..., alias="duprid4"),
+    name1: str = Form(...),
+    name2: str = Form(...),
+    name3: str = Form(...),
+    name4: str = Form(...),
+    r1: float = Form(...),
+    r2: float = Form(...),
+    r3: float = Form(...),
+    r4: float = Form(...),
+    rel1: Optional[float] = Form(default=None),
+    rel2: Optional[float] = Form(default=None),
+    rel3: Optional[float] = Form(default=None),
+    rel4: Optional[float] = Form(default=None),
+    games1: int = Form(..., ge=0, le=30),
+    games2: int = Form(..., ge=0, le=30),
+    notes: Optional[str] = Form(default=None),
+):
+    """
+    Log the current forecast-card score as a real JUPR match.
+
+    The button on the DUPR-style match card POSTs this endpoint via HTMX.
+    We upsert a JuprPlayer per DUPR id (seeded from the current rating +
+    reliability the user has in the form) and append a JuprGame to the
+    ledger. Returns a small HTML fragment that swaps in place of the card
+    to confirm success + link to /jupr.
+
+    This endpoint is intentionally ungated (no JUPR_WRITE_API_KEY check)
+    because it's first-party UI glue — same-origin form submission from
+    our own page. Tighten with a session token / CSRF if you expose the
+    UI on a shared host.
+    """
+    dupr_ids = [duprid_1, duprid_2, duprid_3, duprid_4]
+    names = [name1, name2, name3, name4]
+    ratings = [r1, r2, r3, r4]
+    reliabilities = [rel1, rel2, rel3, rel4]
+
+    try:
+        if games1 == games2:
+            raise ValueError("Ties aren't rated — pick a different score.")
+        players = []
+        for did, nm, rt, rel in zip(dupr_ids, names, ratings, reliabilities):
+            if not did or not nm:
+                raise ValueError("All 4 slots need a DUPR-picked player (id + name).")
+            players.append(
+                jupr_svc.find_or_create_by_dupr_id(
+                    session,
+                    dupr_id=did,
+                    full_name=nm,
+                    seed_rating=rt,
+                    seed_reliability=rel if rel is not None else 50.0,
+                )
+            )
+        if len({p.id for p in players}) != 4:
+            raise ValueError("All 4 players must be distinct.")
+        game = jupr_svc.record_game(
+            session,
+            team1=[players[0].id, players[1].id],
+            team2=[players[2].id, players[3].id],
+            games1=games1, games2=games2,
+            notes=notes,
+        )
+    except ValueError as e:
+        return HTMLResponse(
+            f'<div class="p-4 rounded-xl bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-sm">'
+            f'<strong>Could not log match:</strong> {e}'
+            f'</div>',
+            status_code=400,
+        )
+
+    return _tr(
+        request,
+        "partials/log_to_jupr_success.html",
+        {
+            "game": game,
+            "players": players,
+            "winner": game.winner,
+        },
+    )
+
+
 # ---- JUPR --------------------------------------------------------------------
 
 @router.get("/jupr", response_class=HTMLResponse)
@@ -295,65 +382,12 @@ def dupr_search_partial(
     accept = (request.headers.get("accept") or "").lower()
     wants_json = "application/json" in accept and "text/html" not in accept
 
-    # region agent log
-    try:
-        import json as _json, time as _time
-        _payload = {
-            "sessionId": "994e0d",
-            "runId": "reset-search-debug",
-            "hypothesisId": "H1",
-            "location": "web/routes/pages.py:dupr_search_partial",
-            "message": "incoming /dupr/search request",
-            "data": {
-                "q_received": q,
-                "q_len": len(q),
-                "slot": slot,
-                "query_string": str(request.url.query),
-                "referer": request.headers.get("referer"),
-                "hx_request": request.headers.get("hx-request"),
-                "hx_target": request.headers.get("hx-target"),
-                "hx_trigger": request.headers.get("hx-trigger"),
-                "hx_trigger_name": request.headers.get("hx-trigger-name"),
-                "short_circuit_empty": len(q) < 2,
-                "wants_json": wants_json,
-            },
-            "timestamp": int(_time.time() * 1000),
-        }
-        with open("/Users/jonchui/code/duprly/.cursor/debug-994e0d.log", "a") as _lf:
-            _lf.write(_json.dumps(_payload) + "\n")
-    except Exception:
-        pass
-    # endregion
-
     if len(q) < 2:
         if wants_json:
             return JSONResponse([])
         return HTMLResponse("")
 
     hits = dupr_live.search(session, query=q, limit=10)
-
-    # region agent log
-    try:
-        import json as _json2, time as _time2
-        _payload2 = {
-            "sessionId": "994e0d",
-            "runId": "reset-search-debug",
-            "hypothesisId": "H5",
-            "location": "web/routes/pages.py:dupr_search_partial:after_search",
-            "message": "dupr_live.search returned",
-            "data": {
-                "q": q,
-                "hit_count": len(hits),
-                "first_hit_name": hits[0].full_name if hits else None,
-                "referer": request.headers.get("referer"),
-            },
-            "timestamp": int(_time2.time() * 1000),
-        }
-        with open("/Users/jonchui/code/duprly/.cursor/debug-994e0d.log", "a") as _lf2:
-            _lf2.write(_json2.dumps(_payload2) + "\n")
-    except Exception:
-        pass
-    # endregion
 
     if wants_json:
         return JSONResponse([

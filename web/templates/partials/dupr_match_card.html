@@ -178,9 +178,38 @@
     </div>
   </div>
 
-  <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
-    <div>
-      Expected team-1 match-total: <span class="mono text-slate-400">{{ "%.2f" | format(row.expected_games_team1) }}</span>
+  {# Log-to-JUPR CTA. Requires all 4 DUPR ids to be set on the players meta
+     (the forecast page only populates them when the user picked each slot
+     from the DUPR search dropdown). #}
+  {% set log_ready = players and players|length == 4 and players[0].get("dupr_id") and players[1].get("dupr_id") and players[2].get("dupr_id") and players[3].get("dupr_id") %}
+
+  <div class="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500">
+    <div class="flex items-center gap-3">
+      {% if is_preview and log_ready %}
+        <form hx-post="/forecast/log" hx-target="#score-preview-card" hx-swap="innerHTML" class="inline-flex items-center gap-2">
+          {% for i in range(4) %}
+            <input type="hidden" name="duprid{{ i + 1 }}" value="{{ players[i].dupr_id }}" />
+            <input type="hidden" name="name{{ i + 1 }}"  value="{{ players[i].name or '' }}" />
+            <input type="hidden" name="r{{ i + 1 }}"     value="{{ '%.3f' | format(row.impacts[i].pre_rating) }}" />
+          {% endfor %}
+          <input type="hidden" name="games1" value="{{ row.games1 }}" />
+          <input type="hidden" name="games2" value="{{ row.games2 }}" />
+          <input type="hidden" name="notes"  value="DUPRLY forecast · {{ event_label or 'score preview' }}" />
+          <button type="submit" class="px-3 py-1.5 rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/40 text-emerald-200 hover:bg-emerald-500/25 font-semibold text-xs transition">
+            Log to JUPR
+          </button>
+          <span class="htmx-indicator text-slate-500">saving…</span>
+        </form>
+      {% elif is_preview %}
+        <span class="text-slate-600 text-[11px]">
+          Pick all 4 players from DUPR search to enable "Log to JUPR"
+        </span>
+      {% else %}
+        <span class="text-slate-500">
+          Expected team-1 match-total:
+          <span class="mono text-slate-400">{{ "%.2f" | format(row.expected_games_team1) }}</span>
+        </span>
+      {% endif %}
     </div>
     <div class="mono">
       {% if is_preview %}
