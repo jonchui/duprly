@@ -228,6 +228,8 @@
         if (loc) params.set('loc' + i, loc);
         const img = readVal('#img-' + i);
         if (img) params.set('img' + i, img);
+        const did = readVal('#duprid-' + i);
+        if (did) params.set('duprid' + i, did);
       }
 
       // Cancel prior in-flight so we don't flicker stale output.

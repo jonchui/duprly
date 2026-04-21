@@ -125,15 +125,25 @@
         <div class="text-slate-500 text-sm">{{ venue_label }}</div>
       {% endif %}
     </div>
-    <div class="mono text-right {% if hero_up %}text-emerald-400{% elif hero_down %}text-rose-400{% else %}text-slate-400{% endif %} text-base flex items-center gap-1">
-      {% if hero_up %}
-        <span>+{{ hero_str }}</span>
-        <svg viewBox="0 0 12 8" class="w-2.5 h-2" fill="currentColor"><path d="M6 0 L12 8 L0 8 Z"/></svg>
-      {% elif hero_down %}
-        <span>−{{ hero_str }}</span>
-        <svg viewBox="0 0 12 8" class="w-2.5 h-2" fill="currentColor"><path d="M0 0 L12 0 L6 8 Z"/></svg>
-      {% else %}
-        <span class="text-slate-500">·</span>
+    <div class="flex flex-col items-end gap-1">
+      <div class="mono text-right {% if hero_up %}text-emerald-400{% elif hero_down %}text-rose-400{% else %}text-slate-400{% endif %} text-base flex items-center gap-1">
+        {% if hero_up %}
+          <span>+{{ hero_str }}</span>
+          <svg viewBox="0 0 12 8" class="w-2.5 h-2" fill="currentColor"><path d="M6 0 L12 8 L0 8 Z"/></svg>
+        {% elif hero_down %}
+          <span>−{{ hero_str }}</span>
+          <svg viewBox="0 0 12 8" class="w-2.5 h-2" fill="currentColor"><path d="M0 0 L12 0 L6 8 Z"/></svg>
+        {% else %}
+          <span class="text-slate-500">·</span>
+        {% endif %}
+      </div>
+      {% if delta_source %}
+        <div class="text-[10px] uppercase tracking-wider
+          {% if delta_source == 'DUPR official' %}text-emerald-300 bg-emerald-500/10 ring-emerald-500/30
+          {% else %}text-slate-400 bg-slate-800 ring-slate-700{% endif %}
+          ring-1 px-2 py-0.5 rounded-full mono" title="{{ delta_source }}">
+          {{ delta_source }}
+        </div>
       {% endif %}
     </div>
   </div>

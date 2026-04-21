@@ -133,9 +133,14 @@ def forecast_card(
     img2: Optional[str] = Query(default=None),
     img3: Optional[str] = Query(default=None),
     img4: Optional[str] = Query(default=None),
+    duprid_1: Optional[str] = Query(default=None, alias="duprid1"),
+    duprid_2: Optional[str] = Query(default=None, alias="duprid2"),
+    duprid_3: Optional[str] = Query(default=None, alias="duprid3"),
+    duprid_4: Optional[str] = Query(default=None, alias="duprid4"),
     games_played: int = Query(default=2, ge=1, le=3),
     event_label: Optional[str] = Query(default=None),
     venue_label: Optional[str] = Query(default=None),
+    prefer: Optional[str] = Query(default=None, description="'official' | 'local' — force a delta source"),
 ):
     """
     Render a single DUPR-style match card for one concrete score.
@@ -159,20 +164,45 @@ def forecast_card(
             "Ties aren't rated. Pick a different score."
             "</div>"
         )
-    g1_total, g2_total = _scale_to_match_total(games1, games2, games_played)
-    row = forecast_svc.forecast_one(
-        r1, r2, r3, r4, g1_total, g2_total,
-        rel1=rel1, rel2=rel2, rel3=rel3, rel4=rel4,
-    )
-    row.games1 = games1
-    row.games2 = games2
+
+    dupr_ids = (duprid_1, duprid_2, duprid_3, duprid_4)
+    all_ids_present = all(d and str(d).isdigit() for d in dupr_ids)
+
+    row = None
+    delta_source = None
+    official_error: Optional[str] = None
+
+    if prefer != "local" and all_ids_present:
+        try:
+            row = forecast_svc.forecast_one_official(
+                r1, r2, r3, r4, games1, games2,
+                dupr_ids=tuple(str(d) for d in dupr_ids),  # type: ignore[arg-type]
+            )
+            delta_source = "DUPR official"
+        except Exception as exc:  # noqa: BLE001 — any failure → fall back to local
+            official_error = f"{type(exc).__name__}: {exc}"
+
+    if row is None:
+        g1_total, g2_total = _scale_to_match_total(games1, games2, games_played)
+        row = forecast_svc.forecast_one(
+            r1, r2, r3, r4, g1_total, g2_total,
+            rel1=rel1, rel2=rel2, rel3=rel3, rel4=rel4,
+        )
+        row.games1 = games1
+        row.games2 = games2
+        if delta_source is None:
+            delta_source = "local margin-aware"
+
     players = [
-        {"name": name1, "age": age1, "gender": gender1, "short_address": loc1, "image_url": img1},
-        {"name": name2, "age": age2, "gender": gender2, "short_address": loc2, "image_url": img2},
-        {"name": name3, "age": age3, "gender": gender3, "short_address": loc3, "image_url": img3},
-        {"name": name4, "age": age4, "gender": gender4, "short_address": loc4, "image_url": img4},
+        {"name": name1, "age": age1, "gender": gender1, "short_address": loc1, "image_url": img1, "dupr_id": duprid_1},
+        {"name": name2, "age": age2, "gender": gender2, "short_address": loc2, "image_url": img2, "dupr_id": duprid_2},
+        {"name": name3, "age": age3, "gender": gender3, "short_address": loc3, "image_url": img3, "dupr_id": duprid_3},
+        {"name": name4, "age": age4, "gender": gender4, "short_address": loc4, "image_url": img4, "dupr_id": duprid_4},
     ]
-    split_note = "2-0 sweep" if games_played <= 2 else "2-1 split"
+    if delta_source == "DUPR official":
+        split_note = "DUPR per-game"
+    else:
+        split_note = "2-0 sweep" if games_played <= 2 else "2-1 split"
     return _tr(
         request,
         "partials/dupr_match_card.html",
@@ -182,7 +212,11 @@ def forecast_card(
             "is_preview": True,
             "event_label": event_label or "DUPRLY forecast",
             "venue_label": venue_label or f"Score preview · {games1}-{games2} · {split_note}",
-            "delta_source": "local margin-aware model",
+            "delta_source": delta_source,
+            "official_error": official_error,
+            "games1": games1,
+            "games2": games2,
+            "games_played": games_played,
         },
     )
 

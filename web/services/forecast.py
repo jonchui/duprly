@@ -104,6 +104,104 @@ def _margin_aware_impacts(
         return (base * gR1, base * gR2, -base * gR3, -base * gR4)
 
 
+@dataclass
+class ForecastResult:
+    """Forecast row + provenance so the UI can be honest about where deltas came from."""
+
+    row: ForecastRow
+    source: str  # "dupr_official" | "local_margin_aware" | "local_fitted"
+
+
+def _resolve_winning_score(games1: int, games2: int) -> Optional[int]:
+    """Map a concrete score to DUPR's canonical `winningScore` (11 / 15 / 21).
+
+    Returns None when the score can't be expressed as "first to N" — e.g.
+    12-10 (win-by-2 overtime) — so callers know to skip the official API.
+    """
+    winner = max(games1, games2)
+    loser = min(games1, games2)
+    for cap in (11, 15, 21):
+        if winner == cap and 0 <= loser < cap:
+            return cap
+    return None
+
+
+def forecast_one_official(
+    r1: float, r2: float, r3: float, r4: float,
+    games1: int, games2: int,
+    dupr_ids: tuple[str, str, str, str],
+    *,
+    use_fixtures: bool = False,
+) -> ForecastRow:
+    """
+    Ask DUPR's official `/match/v1.0/forecast` for authoritative per-team
+    deltas, build a ForecastRow with those numbers. Both teammates share
+    the team delta (matches DUPR's in-app display).
+
+    Raises DuprForecastUnavailable when the score can't be mapped to a
+    supported winningScore (e.g. 12-10) or when the API call fails.
+    """
+    from web.services import dupr_forecast
+
+    winning_score = _resolve_winning_score(games1, games2)
+    if winning_score is None:
+        from web.services.dupr_forecast import DuprForecastUnavailable
+        raise DuprForecastUnavailable(
+            f"Score {games1}-{games2} isn't first-to-11/15/21; falling back to local model"
+        )
+
+    # DUPR wants long ints; reject short ids (the UI hides short-id picks
+    # behind the search dropdown so this is a defensive guard).
+    try:
+        p1, p2, p3, p4 = (int(d) for d in dupr_ids)
+    except (TypeError, ValueError) as e:
+        from web.services.dupr_forecast import DuprForecastUnavailable
+        raise DuprForecastUnavailable(f"Non-numeric DUPR id in {dupr_ids!r}: {e}")
+
+    mf = dupr_forecast.forecast(
+        teams=[(p1, p2), (p3, p4)],
+        winning_score=winning_score,
+        game_count=1,
+        use_fixtures=use_fixtures,
+    )
+
+    winner = 1 if games1 > games2 else 2
+    loser_score = games2 if winner == 1 else games1
+    winning_team = mf.team_a if winner == 1 else mf.team_b
+    if loser_score >= len(winning_team.rating_impacts):
+        from web.services.dupr_forecast import DuprForecastUnavailable
+        raise DuprForecastUnavailable(
+            f"loser score {loser_score} ≥ impacts length {len(winning_team.rating_impacts)}"
+        )
+    team_delta = float(winning_team.rating_impacts[loser_score])
+
+    # Mirror for the losing team. DUPR's forecast API doesn't directly
+    # expose loser deltas (both team arrays are "if this team wins" shapes);
+    # the convention observed in DUPR's match cards is loser ≈ -winner.
+    if winner == 1:
+        d1 = d2 = team_delta
+        d3 = d4 = -team_delta
+    else:
+        d1 = d2 = -team_delta
+        d3 = d4 = team_delta
+
+    impacts = [
+        PlayerImpact(1, r1, d1, r1 + d1),
+        PlayerImpact(2, r2, d2, r2 + d2),
+        PlayerImpact(3, r3, d3, r3 + d3),
+        PlayerImpact(4, r4, d4, r4 + d4),
+    ]
+    expected = get_predictor().expected_games(r1, r2, r3, r4)
+    return ForecastRow(
+        games1=games1,
+        games2=games2,
+        winner=winner,
+        expected_games_team1=expected,
+        impacts=impacts,
+        d1=d1, d2=d2, d3=d3, d4=d4,
+    )
+
+
 def forecast_one(
     r1: float,
     r2: float,

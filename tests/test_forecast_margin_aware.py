@@ -114,6 +114,63 @@ class TestForecastCardRoute:
         # Slot subtitle should be suppressed when rich meta is present.
         assert "Slot 1" not in body
 
+    def test_card_uses_dupr_official_when_ids_present_with_fixtures(
+        self, client: TestClient, monkeypatch
+    ):
+        """With all 4 duprids + DUPRLY_USE_FIXTURES=1 the card should source from DUPR official."""
+        monkeypatch.setenv("DUPRLY_USE_FIXTURES", "1")
+        # These are the exact ids captured in tests/fixtures/dupr_api/07-forecast-to-11.response.json.
+        r = client.get(
+            "/forecast/card",
+            params={
+                "r1": R1, "r2": R2, "r3": R3, "r4": R4,
+                "games1": 11, "games2": 7,
+                "duprid1": "4405492894", "duprid2": "7511597513",
+                "duprid3": "7270240621", "duprid4": "5651921565",
+            },
+        )
+        assert r.status_code == 200
+        body = r.text
+        assert "DUPR official" in body, "card must display official delta-source badge"
+        assert "DUPR per-game" in body, "venue label must swap to per-game when official is used"
+
+    def test_card_falls_back_to_local_for_non_canonical_scores(
+        self, client: TestClient, monkeypatch
+    ):
+        """12-10 (win-by-2) isn't first-to-11 → official path must skip gracefully."""
+        monkeypatch.setenv("DUPRLY_USE_FIXTURES", "1")
+        r = client.get(
+            "/forecast/card",
+            params={
+                "r1": R1, "r2": R2, "r3": R3, "r4": R4,
+                "games1": 12, "games2": 10,
+                "duprid1": "4405492894", "duprid2": "7511597513",
+                "duprid3": "7270240621", "duprid4": "5651921565",
+            },
+        )
+        assert r.status_code == 200
+        body = r.text
+        assert "DUPR official" not in body
+        assert "local margin-aware" in body
+
+    def test_card_prefer_local_overrides_official(
+        self, client: TestClient, monkeypatch
+    ):
+        """`prefer=local` should force the local model even with duprids present."""
+        monkeypatch.setenv("DUPRLY_USE_FIXTURES", "1")
+        r = client.get(
+            "/forecast/card",
+            params={
+                "r1": R1, "r2": R2, "r3": R3, "r4": R4,
+                "games1": 11, "games2": 7, "prefer": "local",
+                "duprid1": "4405492894", "duprid2": "7511597513",
+                "duprid3": "7270240621", "duprid4": "5651921565",
+            },
+        )
+        assert r.status_code == 200
+        assert "DUPR official" not in r.text
+        assert "local margin-aware" in r.text
+
     def test_card_three_game_split_has_different_delta_than_sweep(self, client: TestClient):
         """A 2-1 split vs a 2-0 sweep for the same single-game score should differ."""
         sweep = client.get(
