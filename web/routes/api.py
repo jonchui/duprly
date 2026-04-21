@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from web.auth import require_write_key
 from web.db import get_session
 from web.models import JuprPlayer
+from web.services import dupr_forecast as dupr_forecast_svc
 from web.services import dupr_live
 from web.services import forecast as forecast_svc
 from web.services import fupr as fupr_svc
@@ -415,6 +416,138 @@ def api_dupr_refresh(dupr_id: str, session: Session = Depends(get_session)):
         source=h.source,
         stale=h.stale,
     )
+
+
+# ---------- DUPR official forecast (live /match/v1.0/forecast) ---------------
+
+class DuprForecastTeamIn(BaseModel):
+    player1_id: int = Field(..., description="Numeric DUPR id (long). Paste from dashboard URL.")
+    player2_id: Optional[int] = Field(
+        default=None,
+        description="Partner's numeric DUPR id for DOUBLES; omit for SINGLES.",
+    )
+
+
+class DuprForecastRequest(BaseModel):
+    teams: List[DuprForecastTeamIn] = Field(..., min_length=2, max_length=2)
+    winning_score: int = Field(11, ge=5, le=25, description="Game target (11/15/21).")
+    event_format: str = Field("DOUBLES", pattern="^(DOUBLES|SINGLES)$")
+    match_source: str = Field("CLUB", description="CLUB | TOURNAMENT | ...")
+    match_type: str = Field("SIDE_ONLY", description="SIDE_ONLY | SIDE_AND_SERVE | ...")
+    game_count: int = Field(1, ge=1, le=5)
+    use_fixtures: bool = Field(
+        False,
+        description=(
+            "Force-use Proxyman fixtures instead of live DUPR. Handy for local "
+            "dev / CI. Also enabled via DUPRLY_USE_FIXTURES=1."
+        ),
+    )
+
+
+class DuprForecastTeamDTO(BaseModel):
+    player1_id: int
+    player2_id: Optional[int]
+    predicted_losing_score: Optional[float]
+    win_probability_pct: Optional[float]
+    rating_impacts: List[float]
+    impact_if_blowout_win: Optional[float]
+    impact_if_tight_win: Optional[float]
+
+
+class DuprForecastDTO(BaseModel):
+    source: str
+    winning_score: int
+    event_format: str
+    match_source: str
+    match_type: str
+    game_count: int
+    team_a: DuprForecastTeamDTO
+    team_b: DuprForecastTeamDTO
+
+
+def _team_to_dto(t) -> DuprForecastTeamDTO:
+    return DuprForecastTeamDTO(
+        player1_id=t.player1_id,
+        player2_id=t.player2_id,
+        predicted_losing_score=t.predicted_losing_score,
+        win_probability_pct=t.win_probability_pct,
+        rating_impacts=t.rating_impacts,
+        impact_if_blowout_win=t.impact_if_blowout_win,
+        impact_if_tight_win=t.impact_if_tight_win,
+    )
+
+
+def _forecast_to_dto(mf) -> DuprForecastDTO:
+    return DuprForecastDTO(
+        source=mf.source,
+        winning_score=mf.winning_score,
+        event_format=mf.event_format,
+        match_source=mf.match_source,
+        match_type=mf.match_type,
+        game_count=mf.game_count,
+        team_a=_team_to_dto(mf.team_a),
+        team_b=_team_to_dto(mf.team_b),
+    )
+
+
+@router.post(
+    "/dupr/expected-score",
+    response_model=DuprForecastDTO,
+    summary="DUPR official predicted game score",
+    description=(
+        "Thin wrapper over DUPR's `/match/v1.0/expected-score`. Returns only "
+        "the predicted losing-side game count per team (no probability / "
+        "rating impacts). Use `/api/dupr/forecast` for full rating-change "
+        "curves."
+    ),
+)
+def api_dupr_expected_score(req: DuprForecastRequest):
+    teams = [(t.player1_id, t.player2_id) for t in req.teams]
+    try:
+        mf = dupr_forecast_svc.expected_score(
+            teams,
+            winning_score=req.winning_score,
+            event_format=req.event_format,
+            match_source=req.match_source,
+            match_type=req.match_type,
+            game_count=req.game_count,
+            use_fixtures=req.use_fixtures,
+        )
+    except dupr_forecast_svc.DuprForecastUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return _forecast_to_dto(mf)
+
+
+@router.post(
+    "/dupr/forecast",
+    response_model=DuprForecastDTO,
+    summary="DUPR official match forecast (rating impacts + win probability)",
+    description=(
+        "Thin wrapper over DUPR's `/match/v1.0/forecast`. Returns the full "
+        "rating-impact curve (`rating_impacts[N]` = delta if this team wins "
+        "and the losing team scored `N` games) plus `winProbabilityPercentage`."
+        "\n\n"
+        "Requires `DUPR_USERNAME`/`DUPR_PASSWORD` env vars for live calls. "
+        "Set `use_fixtures: true` (or `DUPRLY_USE_FIXTURES=1`) to return the "
+        "Proxyman-captured example response instead — useful in CI / local "
+        "dev when live creds aren't configured."
+    ),
+)
+def api_dupr_forecast(req: DuprForecastRequest):
+    teams = [(t.player1_id, t.player2_id) for t in req.teams]
+    try:
+        mf = dupr_forecast_svc.forecast(
+            teams,
+            winning_score=req.winning_score,
+            event_format=req.event_format,
+            match_source=req.match_source,
+            match_type=req.match_type,
+            game_count=req.game_count,
+            use_fixtures=req.use_fixtures,
+        )
+    except dupr_forecast_svc.DuprForecastUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return _forecast_to_dto(mf)
 
 
 # ---------- Goal forecast ("what do I have to win?") --------------------------
