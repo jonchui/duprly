@@ -1,0 +1,41 @@
+<div class="mb-3 text-sm text-slate-400">
+  Expected games for Team 1 out of ~22:
+  <span class="mono text-slate-100">{{ "%.2f"|format(rows[0].expected_games_team1) }}</span>
+  · {{ rows|length }} scores
+</div>
+<div class="rounded-xl ring-1 ring-slate-800 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-900 text-slate-400">
+      <tr>
+        <th class="px-3 py-2 text-left">Score</th>
+        <th class="px-3 py-2 text-left">Winner</th>
+        <th class="px-3 py-2 text-right mono">Δ P1 ({{ "%.2f"|format(inputs.r1) }})</th>
+        <th class="px-3 py-2 text-right mono">Δ P2 ({{ "%.2f"|format(inputs.r2) }})</th>
+        <th class="px-3 py-2 text-right mono">Δ P3 ({{ "%.2f"|format(inputs.r3) }})</th>
+        <th class="px-3 py-2 text-right mono">Δ P4 ({{ "%.2f"|format(inputs.r4) }})</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-800 mono">
+      {% for r in rows %}
+      <tr class="hover:bg-slate-900/60">
+        <td class="px-3 py-2 font-semibold">{{ r.games1 }}–{{ r.games2 }}</td>
+        <td class="px-3 py-2">
+          <span class="chip {% if r.winner == 1 %}bg-emerald-500/20 text-emerald-300{% else %}bg-rose-500/20 text-rose-300{% endif %}">
+            Team {{ r.winner }}
+          </span>
+        </td>
+        {% for d in [r.d1, r.d2, r.d3, r.d4] %}
+          <td class="px-3 py-2 text-right {% if d > 0 %}text-emerald-300{% elif d < 0 %}text-rose-300{% else %}text-slate-400{% endif %}">
+            {{ "%+.4f"|format(d) }}
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-3 text-xs text-slate-500">
+  Δ is the predicted rating change per match impact. The model is the same
+  fitted predictor used by <code>dupr_predictor.py</code> — an approximation
+  of DUPR's internal algorithm, not official.
+</p>
