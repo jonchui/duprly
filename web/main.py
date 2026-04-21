@@ -17,18 +17,26 @@ Exposes:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
-# Load .env before any modules that read env vars (DUPR creds, JUPR_WRITE_API_KEY).
-# Vercel ignores this because Vercel injects env vars at runtime, so it's a no-op
-# in production.
+# Load .env BEFORE any modules that read env vars (DUPR creds, JUPR_WRITE_API_KEY).
+#
+# We resolve the project-root .env explicitly from this file's location rather
+# than relying on CWD. Otherwise `uvicorn web.main:app` launched from anywhere
+# but the repo root silently starts with no DUPR credentials and the UI shows
+# "Local cache only" even though .env is sitting right there.
+#
+# Vercel ignores this because it injects env vars at runtime — load_dotenv()
+# is a no-op when the target file doesn't exist.
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    _DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(dotenv_path=_DOTENV_PATH, override=False)
 except ImportError:
     pass
 
