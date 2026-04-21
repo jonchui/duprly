@@ -137,7 +137,12 @@ def dupr_search_partial(
     return _tr(
         request,
         "partials/dupr_search.html",
-        {"hits": hits, "slot": slot, "q": q},
+        {
+            "hits": hits,
+            "slot": slot,
+            "q": q,
+            "live_available": dupr_live._has_live_credentials(),
+        },
     )
 
 

@@ -20,7 +20,19 @@
   {% endfor %}
 </ul>
 {% else %}
-<div class="mt-1 px-3 py-2 text-sm text-slate-500 ring-1 ring-slate-800 bg-slate-950 rounded-lg">
-  No matches. {% if q %}<span class="mono">"{{ q }}"</span>{% endif %}
+<div class="mt-1 px-3 py-2 text-sm ring-1 ring-slate-800 bg-slate-950 rounded-lg absolute w-full z-50">
+  <div class="text-slate-300">
+    No matches for {% if q %}<span class="mono">"{{ q }}"</span>{% endif %}.
+  </div>
+  <div class="text-xs text-slate-500 mt-1">
+    {% if live_available %}
+      Checked local cache and live DUPR. Try a partial name (e.g. first name only)
+      or paste a DUPR id directly into the rating box at right.
+    {% else %}
+      Local cache only — set <span class="mono">DUPR_USERNAME</span> and
+      <span class="mono">DUPR_PASSWORD</span> in <span class="mono">.env</span>
+      to enable live DUPR lookup.
+    {% endif %}
+  </div>
 </div>
 {% endif %}

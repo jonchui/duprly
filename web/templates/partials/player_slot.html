@@ -20,12 +20,16 @@
         class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
         id="search-{{ slot_num }}"
         hx-get="/dupr/search"
-        hx-trigger="keyup changed delay:300ms"
+        hx-trigger="input changed delay:300ms, keyup[key==='Enter']"
         hx-target="#results-{{ slot_num }}"
         hx-vals='{"slot": {{ slot_num }}}'
+        hx-indicator="#spinner-{{ slot_num }}"
         autocomplete="off"
         form="__never-submit"
       />
+      <div id="spinner-{{ slot_num }}" class="htmx-indicator absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-emerald-400 pointer-events-none">
+        searching DUPR…
+      </div>
       <div id="results-{{ slot_num }}" class="relative"></div>
     </div>
     <input
