@@ -56,7 +56,9 @@
       class="w-16 bg-slate-950 ring-1 ring-slate-700 rounded px-2 py-2 text-sm mono"
     />
   </div>
-  {# Set by fillSlot() when a DUPR result is picked. Enables the "DUPR forecast" CTA. #}
+  {# Set by fillSlot() when a DUPR result is picked. Enables the "DUPR forecast" CTA
+     and lets the score-picker card show real names. #}
   <input type="hidden" id="duprid-{{ slot_num }}" name="duprid_{{ slot_num }}" value="" />
+  <input type="hidden" id="name-{{ slot_num }}" name="name_{{ slot_num }}" value="" />
   <div id="label-{{ slot_num }}" class="mt-1 text-xs text-slate-500 min-h-[1.1em]"></div>
 </div>

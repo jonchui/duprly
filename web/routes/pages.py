@@ -69,6 +69,100 @@ def forecast_submit(
     return _tr(request, "forecast.html", {"rows": rows, "inputs": inputs})
 
 
+def _scale_to_match_total(games1: int, games2: int, games_played: int) -> tuple[int, int]:
+    """
+    Convert single-game scores (e.g. 11-7) into the match-total the fitted
+    predictor was trained on (sum of game-points across a best-of-3 match).
+
+    See web/services/forecast.py::_generate_candidate_scores: the DuprPredictor
+    was fit on games1/games2 totals like 22-13 (2-game sweep), 28-22 (2-1),
+    not single-game scores. Feeding it (11, 7) gives a saturated / near-boundary
+    delta because that looks like a losing-margin edge case to the model.
+
+    Heuristic:
+      - games_played=2 (assume 2-0 sweep) → double both scores.
+      - games_played=3 (2-1 split): winner won 2, loser won 1. Approximate
+        game totals as (2*winner_pts + loser_pts) and mirror. Close enough
+        for single-score UI; for an exact matrix use forecast_matrix().
+    """
+    if games1 == games2:
+        return games1, games2
+    if games_played <= 2:
+        return games1 * 2, games2 * 2
+    # 3-game split: winner took 2 of 3, loser 1 of 3.
+    if games1 > games2:
+        winner_total = 2 * games1 + games2
+        loser_total = 2 * games2 + games1
+        return winner_total, loser_total
+    else:
+        winner_total = 2 * games2 + games1
+        loser_total = 2 * games1 + games2
+        return loser_total, winner_total
+
+
+@router.get("/forecast/card", response_class=HTMLResponse)
+def forecast_card(
+    request: Request,
+    r1: float = Query(...),
+    r2: float = Query(...),
+    r3: float = Query(...),
+    r4: float = Query(...),
+    games1: int = Query(..., ge=0, le=30),
+    games2: int = Query(..., ge=0, le=30),
+    rel1: Optional[float] = Query(default=None),
+    rel2: Optional[float] = Query(default=None),
+    rel3: Optional[float] = Query(default=None),
+    rel4: Optional[float] = Query(default=None),
+    name1: Optional[str] = Query(default=None),
+    name2: Optional[str] = Query(default=None),
+    name3: Optional[str] = Query(default=None),
+    name4: Optional[str] = Query(default=None),
+    games_played: int = Query(default=2, ge=1, le=3),
+    event_label: Optional[str] = Query(default=None),
+    venue_label: Optional[str] = Query(default=None),
+):
+    """
+    Render a single DUPR-style match card for one concrete score.
+
+    Used by the `/forecast` score picker — the user sets Team 1 vs Team 2
+    game points (e.g. 11-7) and we rerender the card with live per-player
+    deltas (pre / Δ / post), styled to match DUPR's native match UI.
+
+    Scores are interpreted as single-game scores (to 11 or to 15) and
+    scaled to match-totals before feeding the predictor — the fitted model
+    was trained on totals, not single-game scores. Pass games_played=3
+    for a 2-1 split instead of a sweep.
+    """
+    if games1 == games2:
+        return HTMLResponse(
+            '<div class="text-amber-300 text-sm p-4 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30">'
+            "Ties aren't rated. Pick a different score."
+            "</div>"
+        )
+    g1_total, g2_total = _scale_to_match_total(games1, games2, games_played)
+    row = forecast_svc.forecast_one(
+        r1, r2, r3, r4, g1_total, g2_total,
+        rel1=rel1, rel2=rel2, rel3=rel3, rel4=rel4,
+    )
+    # Rewrite row.games{1,2} to the single-game scores the user picked — the
+    # card shows "11-7" not "22-14", mirroring how DUPR's match UI labels it.
+    row.games1 = games1
+    row.games2 = games2
+    names = [name1 or "", name2 or "", name3 or "", name4 or ""]
+    split_note = "2-0 sweep" if games_played <= 2 else "2-1 split"
+    return _tr(
+        request,
+        "partials/dupr_match_card.html",
+        {
+            "row": row,
+            "names": names,
+            "is_preview": True,
+            "event_label": event_label or "DUPRLY forecast",
+            "venue_label": venue_label or f"Score preview · {games1}-{games2} · {split_note}",
+        },
+    )
+
+
 # ---- JUPR --------------------------------------------------------------------
 
 @router.get("/jupr", response_class=HTMLResponse)

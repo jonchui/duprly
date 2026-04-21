@@ -79,17 +79,189 @@
   </div>
 </form>
 
+<!--
+  DUPR-style score preview.
+  Picks a single concrete final score (e.g. 11-7) and renders a match card
+  that mirrors DUPR's in-app UI: per-player pre → Δ → post, winner arrow,
+  match-delta pill. Auto-refreshes whenever ratings/score/names change.
+-->
+<section class="mb-8">
+  <div class="flex items-end justify-between flex-wrap gap-3 mb-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Score preview</h2>
+      <p class="text-xs text-slate-500">
+        Pick a final score → see each player's rating up / down, DUPR-style.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <label class="text-[10px] uppercase tracking-wider text-slate-500">Team 1</label>
+      <input
+        type="number" id="score-g1" value="11" min="0" max="30"
+        class="w-16 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-1 text-sm mono text-center"
+      />
+      <span class="text-slate-500 mono">–</span>
+      <input
+        type="number" id="score-g2" value="7" min="0" max="30"
+        class="w-16 bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-2 py-1 text-sm mono text-center"
+      />
+      <label class="text-[10px] uppercase tracking-wider text-slate-500 ml-2">Team 2</label>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2 flex-wrap mb-3 text-xs" id="score-quick-picks">
+    <span class="text-slate-500">Quick picks:</span>
+    {% for g1, g2 in [(11,0),(11,4),(11,7),(11,9),(15,11),(9,11),(7,11),(4,11),(0,11)] %}
+      <button
+        type="button"
+        data-g1="{{ g1 }}" data-g2="{{ g2 }}"
+        class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 mono text-slate-300"
+      >{{ g1 }}–{{ g2 }}</button>
+    {% endfor %}
+    <span class="text-slate-600 ml-2">·</span>
+    <label class="text-slate-500">Games played:</label>
+    <select id="score-games-played" class="bg-slate-950 ring-1 ring-slate-700 rounded px-2 py-1 text-xs mono">
+      <option value="2" selected>2 (sweep)</option>
+      <option value="3">3 (2-1 split)</option>
+    </select>
+  </div>
+
+  <div id="score-preview-card" class="min-h-[100px]">
+    <div class="text-slate-500 text-sm p-4 rounded-lg bg-slate-900/50 ring-1 ring-slate-800">
+      Fill in 4 ratings above (type or DUPR-search) and the forecast card will
+      appear here with live per-player deltas.
+    </div>
+  </div>
+</section>
+
 <div id="forecast-results">
   {% if rows %}
     {% include "partials/forecast_table.html" %}
   {% else %}
-    <p class="text-slate-500 text-sm">Submit the form above to see the full score matrix.</p>
+    <details class="text-slate-500 text-sm">
+      <summary class="cursor-pointer hover:text-slate-300">Want the full score matrix? Submit the form above.</summary>
+      <p class="mt-2">We'll run every plausible final score through the fitted model so you can compare.</p>
+    </details>
   {% endif %}
 </div>
 
 {% include "partials/fill_slot_js.html" %}
 
 <script>
+  // Score preview card.
+  //
+  // Grabs current r1..r4 + rel1..rel4 + names + chosen score from the form and
+  // fetches /forecast/card, which renders a DUPR-style match card with
+  // per-player deltas. Re-runs on:
+  //   - any rating / reliability input change
+  //   - any DUPR search result being picked (duprly:slot-filled event)
+  //   - score input changes
+  //   - quick-pick button clicks
+  //
+  // We fetch HTML (not JSON) and inject it — the partial already owns
+  // DUPR-faithful styling.
+  (function () {
+    const card = document.getElementById('score-preview-card');
+    const g1Input = document.getElementById('score-g1');
+    const g2Input = document.getElementById('score-g2');
+    const gamesPlayedSel = document.getElementById('score-games-played');
+    if (!card || !g1Input || !g2Input) return;
+
+    let inflight = null;
+    let debounceTimer = null;
+
+    function readVal(sel) {
+      const el = document.querySelector(sel);
+      return el && el.value !== '' ? el.value : '';
+    }
+    function readNum(sel) {
+      const v = readVal(sel);
+      const n = Number(v);
+      return Number.isFinite(n) && v !== '' ? n : null;
+    }
+    function readName(slot) {
+      const hidden = document.getElementById('name-' + slot);
+      if (hidden && hidden.value) return hidden.value;
+      const search = document.getElementById('search-' + slot);
+      // If the user typed a number, don't show it as a name.
+      if (search && search.value && !/^\d+$/.test(search.value.trim())) return search.value.trim();
+      return '';
+    }
+
+    function allRatingsValid() {
+      return ['#r1', '#r2', '#r3', '#r4'].every(sel => {
+        const n = readNum(sel);
+        return n != null && n >= 1 && n <= 8.5;
+      });
+    }
+
+    function refresh() {
+      if (!allRatingsValid()) {
+        card.innerHTML = '<div class="text-slate-500 text-sm p-4 rounded-lg bg-slate-900/50 ring-1 ring-slate-800">'
+          + 'Fill in 4 ratings above (type or DUPR-search) and the forecast card will appear here with live per-player deltas.'
+          + '</div>';
+        return;
+      }
+      const g1 = Number(g1Input.value);
+      const g2 = Number(g2Input.value);
+      if (!Number.isFinite(g1) || !Number.isFinite(g2)) return;
+
+      const params = new URLSearchParams();
+      params.set('r1', readVal('#r1'));
+      params.set('r2', readVal('#r2'));
+      params.set('r3', readVal('#r3'));
+      params.set('r4', readVal('#r4'));
+      ['rel1', 'rel2', 'rel3', 'rel4'].forEach(k => {
+        const v = readVal('#' + k);
+        if (v !== '') params.set(k, v);
+      });
+      params.set('games1', String(g1));
+      params.set('games2', String(g2));
+      if (gamesPlayedSel) params.set('games_played', gamesPlayedSel.value);
+      for (let i = 1; i <= 4; i++) {
+        const n = readName(i);
+        if (n) params.set('name' + i, n);
+      }
+
+      // Cancel prior in-flight so we don't flicker stale output.
+      if (inflight) { try { inflight.abort(); } catch (_) {} }
+      const ctrl = new AbortController();
+      inflight = ctrl;
+      fetch('/forecast/card?' + params.toString(), { signal: ctrl.signal })
+        .then(r => r.text())
+        .then(html => { card.innerHTML = html; })
+        .catch(err => {
+          if (err && err.name === 'AbortError') return;
+          card.innerHTML = '<div class="text-rose-300 text-sm p-4 rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30">'
+            + 'Forecast failed: ' + (err && err.message ? err.message : err) + '</div>';
+        });
+    }
+
+    function debouncedRefresh() {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refresh, 120);
+    }
+
+    ['r1','r2','r3','r4','rel1','rel2','rel3','rel4'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', debouncedRefresh);
+    });
+    g1Input.addEventListener('input', debouncedRefresh);
+    g2Input.addEventListener('input', debouncedRefresh);
+    if (gamesPlayedSel) gamesPlayedSel.addEventListener('change', refresh);
+    document.addEventListener('duprly:slot-filled', debouncedRefresh);
+
+    document.querySelectorAll('#score-quick-picks button[data-g1]').forEach(btn => {
+      btn.addEventListener('click', function () {
+        g1Input.value = btn.dataset.g1;
+        g2Input.value = btn.dataset.g2;
+        refresh();
+      });
+    });
+
+    // Fire once in case the form is pre-filled (e.g. POST rerender).
+    refresh();
+  })();
+
   // "Get DUPR official forecast" CTA.
   //
   // Enabled only when all 4 slots carry a numeric DUPR id (set by fillSlot()

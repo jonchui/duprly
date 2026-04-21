@@ -8,6 +8,7 @@
     const resultsBox = document.querySelector('#results-' + slot);
     const label = document.querySelector('#label-' + slot);
     const idInput = document.querySelector('#duprid-' + slot);
+    const nameInput = document.querySelector('#name-' + slot);
 
     if (ratingInput && rating != null && rating !== 0) ratingInput.value = Number(rating).toFixed(2);
     if (relInput && reliability != null) relInput.value = Math.round(reliability);
@@ -15,8 +16,11 @@
     if (label) label.innerHTML = '<span class="text-emerald-300">● </span>' + (fullName || '') + ' <span class="text-slate-600">· ' + duprId + '</span>';
     if (resultsBox) resultsBox.innerHTML = '';
     if (idInput) idInput.value = duprId || '';
-    // Let listeners (e.g. /forecast DUPR-official CTA) re-evaluate eligibility.
-    document.dispatchEvent(new CustomEvent('duprly:slot-filled', { detail: { slot, duprId } }));
+    if (nameInput) nameInput.value = fullName || '';
+    // Let listeners (e.g. /forecast DUPR-official CTA, score-picker card) re-evaluate.
+    document.dispatchEvent(new CustomEvent('duprly:slot-filled', {
+      detail: { slot, duprId, fullName, rating, reliability },
+    }));
   }
 
   // Close search dropdowns on outside click.
