@@ -114,6 +114,19 @@ def _extract_ratings(hit: Dict[str, Any]) -> Dict[str, Any]:
     return r
 
 
+def _is_bad_name(name: Optional[str]) -> bool:
+    """Reject names like '', 'undefined undefined', 'null', 'None None' etc."""
+    if not name:
+        return True
+    n = name.strip().lower()
+    if not n:
+        return True
+    tokens = [t for t in n.split() if t]
+    bad_tokens = {"undefined", "null", "none", "nil", "nan"}
+    # If *every* token is a sentinel/literal-null, reject.
+    return bool(tokens) and all(t in bad_tokens for t in tokens)
+
+
 def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[DuprCachedPlayer]:
     """Create/update a DuprCachedPlayer row from a DUPR API hit dict."""
     dupr_id = hit.get("id") or hit.get("userId")
@@ -123,10 +136,21 @@ def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[Dupr
 
     ratings = _extract_ratings(hit)
 
-    full_name = hit.get("fullName") or " ".join(
-        x for x in [hit.get("firstName"), hit.get("lastName")] if x
+    def _clean_str(v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s or s.lower() in {"undefined", "null", "none", "nil", "nan"}:
+            return None
+        return s
+
+    first_name = _clean_str(hit.get("firstName"))
+    last_name = _clean_str(hit.get("lastName"))
+    full_name = _clean_str(hit.get("fullName")) or " ".join(
+        x for x in [first_name, last_name] if x
     ).strip()
-    if not full_name:
+    if _is_bad_name(full_name):
+        _LOG.info("skip cache upsert for id=%s: bad name %r", dupr_id, full_name)
         return None
 
     existing = session.get(DuprCachedPlayer, dupr_id)
@@ -135,9 +159,9 @@ def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[Dupr
         row = DuprCachedPlayer(
             dupr_id=dupr_id,
             full_name=full_name,
-            first_name=hit.get("firstName"),
-            last_name=hit.get("lastName"),
-            short_dupr_id=hit.get("duprId"),
+            first_name=first_name,
+            last_name=last_name,
+            short_dupr_id=_clean_str(hit.get("duprId")),
             doubles=ratings.get("doubles"),
             doubles_reliability=ratings.get("doubles_reliability"),
             doubles_verified=ratings.get("doubles_verified", False),
@@ -155,9 +179,9 @@ def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[Dupr
 
     # Update mutable fields
     existing.full_name = full_name
-    existing.first_name = hit.get("firstName") or existing.first_name
-    existing.last_name = hit.get("lastName") or existing.last_name
-    existing.short_dupr_id = hit.get("duprId") or existing.short_dupr_id
+    existing.first_name = first_name or existing.first_name
+    existing.last_name = last_name or existing.last_name
+    existing.short_dupr_id = _clean_str(hit.get("duprId")) or existing.short_dupr_id
     for field in (
         "doubles", "doubles_reliability", "doubles_verified",
         "singles", "singles_reliability", "singles_verified",
@@ -205,6 +229,18 @@ def _cached_to_hit(row: DuprCachedPlayer) -> PlayerSearchHit:
     )
 
 
+_SHORT_ID_RE = __import__("re").compile(r"^[A-Z0-9]{6}$")
+_NUMERIC_ID_RE = __import__("re").compile(r"^\d{6,}$")
+
+
+def _looks_like_short_id(q: str) -> bool:
+    return bool(_SHORT_ID_RE.match(q.upper()))
+
+
+def _looks_like_numeric_id(q: str) -> bool:
+    return bool(_NUMERIC_ID_RE.match(q))
+
+
 def search(
     session: Session,
     query: str,
@@ -212,15 +248,18 @@ def search(
     live_fallback: bool = True,
 ) -> List[PlayerSearchHit]:
     """
-    Search the cache first. If there's a clear signal the cache doesn't cover
-    this query (few hits, short-duprId exact lookup misses, etc.) and live
-    credentials are present, also hit the DUPR API and upsert the results.
+    Hybrid search: cache first, live DUPR fallback when results look thin or
+    when the query looks like a DUPR id (6-char alphanumeric short id, or a
+    long numeric internal id).
     """
     q = (query or "").strip()
     if not q:
         return []
 
-    # Cache search: ILIKE on name + exact match on short DUPR id.
+    is_short_id = _looks_like_short_id(q)
+    is_numeric_id = _looks_like_numeric_id(q)
+
+    # Cache search: ILIKE on name + exact match on short DUPR id + numeric id.
     cache_rows = session.execute(
         select(DuprCachedPlayer)
         .where(
@@ -235,16 +274,34 @@ def search(
     ).scalars().all()
     hits: List[PlayerSearchHit] = [_cached_to_hit(r) for r in cache_rows]
 
-    # Live fallback: fire if requested + creds exist + cache is "thin".
-    # "Thin" = 0 hits, OR user typed a likely-full-name (has a space) and
-    # we have fewer than 5 results from cache.
+    # Force live fallback for id-shaped queries so we always pull fresh data
+    # for "exact-lookup" intent — users pasting a DUPR id want the real row,
+    # not a stale cache hit.
+    id_shape = is_short_id or is_numeric_id
     thin_cache = (
         len(hits) == 0
         or (" " in q and len(hits) < 5)
+        or id_shape
     )
+
     if live_fallback and thin_cache and _has_live_credentials():
         try:
             client = _get_live_client()
+
+            # If it looks like a numeric id, try the exact-player endpoint first.
+            if is_numeric_id:
+                try:
+                    rc, player = client.get_player(q)
+                    if rc == 200 and isinstance(player, dict):
+                        row = upsert_cached_player(session, player)
+                        if row is not None and not any(h.dupr_id == row.dupr_id for h in hits):
+                            h = _cached_to_hit(row)
+                            h.source = "live"
+                            hits.append(h)
+                except Exception as exc:
+                    _LOG.warning("dupr get_player failed id=%r err=%s", q, exc)
+
+            # Name search / short-id search (DUPR's /search endpoint accepts both).
             rc, result = client.search_players(q, limit=limit)
             _LOG.info("dupr live search q=%r rc=%s", q, rc)
             if rc == 200 and result:
@@ -255,13 +312,11 @@ def search(
                             continue
                         row = upsert_cached_player(session, raw)
                         if row is not None:
-                            # Avoid duplicating if already in `hits`.
                             if not any(h.dupr_id == row.dupr_id for h in hits):
                                 h = _cached_to_hit(row)
                                 h.source = "live"
                                 hits.append(h)
         except Exception as exc:
-            # We intentionally swallow — cache is the source of truth, live is best-effort.
             _LOG.warning("dupr live search failed q=%r err=%s", q, exc)
     elif live_fallback and thin_cache and not _has_live_credentials():
         _LOG.debug("dupr live search skipped (no DUPR_USERNAME/PASSWORD set)")
