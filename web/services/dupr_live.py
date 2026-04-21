@@ -309,17 +309,31 @@ def search(
     ).scalars().all()
     hits: List[PlayerSearchHit] = [_cached_to_hit(r) for r in cache_rows]
 
-    # Force live fallback whenever the cache is thin OR the query smells like
-    # an exact-lookup (short/numeric DUPR id). Previously we gated live fallback
-    # behind `(" " in q and len(hits) < 5)` for multi-word queries, which meant
-    # single-word searches like "bryan" would silently stop at a stale cache
-    # result and never surface fresh DUPR hits (e.g. "Bryan Sullivan"). The
-    # fix: live-fallback any time the cache returned fewer hits than the
-    # requested limit (capped at 5 so we're not hammering DUPR for every
-    # incidental keystroke).
+    # Force live fallback whenever the cache didn't fully fill the requested
+    # page OR the query smells like an exact-lookup (short/numeric DUPR id).
+    #
+    # Evolution of this guard:
+    #   v1: `(" " in q and len(hits) < 5)` — only multi-word queries went live.
+    #       Broke single-word searches like "bryan".
+    #   v2: `len(hits) < min(5, limit)` — fixed "bryan", but broke "Cody F".
+    #       When the cache already has 5+ matches for a common prefix, we
+    #       would silently show a stale cache snapshot instead of DUPR's
+    #       actual ranked top-N. The user sees Cody Ferguson/Fischer/Flake/
+    #       Frame/Frazer from our cache, while dashboard.dupr.com ranks a
+    #       totally different Cody F... first.
+    #   v3 (current): `len(hits) < limit` — call live any time the cache
+    #       didn't completely fill the requested page. The HTMX autocomplete
+    #       on the client is already `delay:300ms` debounced, so we're not
+    #       going to DoS DUPR from keystrokes — and fresh results are
+    #       basically always better than a partial stale cache slice.
     id_shape = is_short_id or is_numeric_id
-    thin_cache_threshold = min(5, limit)
-    thin_cache = len(hits) < thin_cache_threshold or id_shape
+    thin_cache = len(hits) < limit or id_shape
+
+    # When live fires we want DUPR's relevance ranking to drive the dropdown
+    # order, then append any cache-only strays. Build a separate `live_hits`
+    # list and merge at the end, rather than `hits.append`-ing in cache-then-
+    # live order (which was putting alphabetical cache rows above DUPR's #1).
+    live_hits: List[PlayerSearchHit] = []
 
     if live_fallback and thin_cache and _has_live_credentials():
         try:
@@ -331,10 +345,10 @@ def search(
                     rc, player = client.get_player(q)
                     if rc == 200 and isinstance(player, dict):
                         row = upsert_cached_player(session, player)
-                        if row is not None and not any(h.dupr_id == row.dupr_id for h in hits):
+                        if row is not None:
                             h = _cached_to_hit(row)
                             h.source = "live"
-                            hits.append(h)
+                            live_hits.append(h)
                 except Exception as exc:
                     _LOG.warning("dupr get_player failed id=%r err=%s", q, exc)
 
@@ -349,16 +363,26 @@ def search(
                             continue
                         row = upsert_cached_player(session, raw)
                         if row is not None:
-                            if not any(h.dupr_id == row.dupr_id for h in hits):
+                            if not any(h.dupr_id == row.dupr_id for h in live_hits):
                                 h = _cached_to_hit(row)
                                 h.source = "live"
-                                hits.append(h)
+                                live_hits.append(h)
         except Exception as exc:
             _LOG.warning("dupr live search failed q=%r err=%s", q, exc)
     elif live_fallback and thin_cache and not _has_live_credentials():
         _LOG.debug("dupr live search skipped (no DUPR_USERNAME/PASSWORD set)")
 
-    return hits[:limit]
+    # Merge: live hits first (in DUPR's relevance order), then any cache-only
+    # strays the live response didn't return. If live didn't fire / returned
+    # nothing, we fall back to the alphabetical cache order unchanged.
+    if live_hits:
+        live_ids = {h.dupr_id for h in live_hits}
+        cache_only = [h for h in hits if h.dupr_id not in live_ids]
+        merged = live_hits + cache_only
+    else:
+        merged = hits
+
+    return merged[:limit]
 
 
 def refresh(session: Session, dupr_id: str) -> Optional[PlayerSearchHit]:
