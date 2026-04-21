@@ -504,3 +504,53 @@ class DuprClient(object):
             return r.status_code, r.json()
         else:
             return r.status_code, None
+
+    def get_forecast(
+        self,
+        teams,
+        event_format: str = "DOUBLES",
+        match_source: str = "CLUB",
+        game_count: int = 1,
+        winning_score: int = 11,
+        match_type: str = "SIDE_ONLY",
+    ) -> tuple[int, dict]:
+        """
+        Call DUPR's official match forecaster.
+
+        Same request shape as `/expected-score` but the response carries the
+        full rating-impact curves (`winningRatingImpacts`, `winProbabilityPercentage`)
+        that power the "DUPR Forecaster" view in the iOS / web app.
+
+        See `tests/fixtures/dupr_api/07-forecast-to-11.*` for a canonical
+        request / response pair.
+
+        Args:
+            teams: List of teams, each a dict with player1Id and player2Id
+                   (use player2Id == player1Id — or drop it — for singles).
+            event_format: "DOUBLES" or "SINGLES"
+            match_source: "CLUB" | "TOURNAMENT" | ...
+            game_count:   Number of games played in the match (usually 1).
+            winning_score: Target game score (11 / 15 / 21).
+            match_type:   "SIDE_ONLY" | "SIDE_AND_SERVE" | ...
+
+        Returns:
+            (status_code, parsed response dict) — response shape documented
+            in tests/fixtures/dupr_api/README.md.
+        """
+        request_data = {
+            "teams": teams,
+            "eventFormat": event_format,
+            "matchSource": match_source,
+            "gameCount": game_count,
+            "winningScore": winning_score,
+            "matchType": match_type,
+        }
+        r = self.dupr_post(
+            f"/match/{self.version}/forecast",
+            json_data=request_data,
+            name="get_forecast",
+        )
+        if r.status_code == 200:
+            self.ppj(r.json())
+            return r.status_code, r.json()
+        return r.status_code, None
