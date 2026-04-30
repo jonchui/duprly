@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{#
+  /forecast — the hero page of duprly.
+
+  State model:
+    - The 4 DUPR player picks live in the URL as path segments:
+        /forecast/<id1>/<id2>/<id3>/<id4>
+      The score lives in the query string (?g1=11&g2=7). Everything else
+      (ratings, reliability, avatars) is hydrated server-side from the
+      DuprCachedPlayer cache and rendered directly into the hidden inputs
+      that the score-preview card reads from.
+    - Slot fills on the client push a new URL via history.replaceState so
+      copy-pasting the URL always reproduces the current view, and the
+      browser back button after navigating to /dupr/player/<id> restores
+      exactly the forecast the user had.
+
+  Template vars:
+    prefills        — dict[int, dict] keyed by slot (1..4). Each value:
+                        { duprid, name, rating, rel, age, gender, loc, img }
+                      — any subset may be present. Empty/omitted slots
+                      render the normal "search DUPR…" input.
+    initial_score   — optional { g1:int, g2:int } parsed from ?g1/g2.
+                      Defaults to 11–7.
+#}
+{% block title %}Forecast · duprly{% endblock %}
+
+{% set _init_g1 = (initial_score.g1 if initial_score and initial_score.g1 is not none else 11) %}
+{% set _init_g2 = (initial_score.g2 if initial_score and initial_score.g2 is not none else 7) %}
+
+{% block content %}
+<h1 class="text-2xl md:text-3xl font-bold mb-2">Forecast every score</h1>
+<p class="text-slate-400 mb-6">
+  Pick 4 players from DUPR, dial the score, and see each player's rating
+  delta computed by DUPR's own
+  <a class="underline hover:text-slate-300" href="https://dashboard.dupr.com" target="_blank" rel="noopener">forecaster</a>.
+</p>
+
+<form
+  id="forecast-form"
+  class="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6"
+  method="post"
+  action="/forecast"
+  hx-post="/forecast"
+  hx-target="#forecast-results"
+  hx-swap="innerHTML"
+>
+  <div class="grid md:grid-cols-2 gap-5">
+    <div>
+      <div class="text-sm font-semibold text-slate-300 mb-2">Team 1</div>
+      <div class="space-y-3">
+        {% with
+          slot_num=1,
+          rating_field="r1", rel_field="rel1",
+          prefill=(prefills.get(1) if prefills else None)
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+        {% with
+          slot_num=2,
+          rating_field="r2", rel_field="rel2",
+          prefill=(prefills.get(2) if prefills else None)
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+      </div>
+    </div>
+    <div>
+      <div class="text-sm font-semibold text-slate-300 mb-2">Team 2</div>
+      <div class="space-y-3">
+        {% with
+          slot_num=3,
+          rating_field="r3", rel_field="rel3",
+          prefill=(prefills.get(3) if prefills else None)
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+        {% with
+          slot_num=4,
+          rating_field="r4", rel_field="rel4",
+          prefill=(prefills.get(4) if prefills else None)
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 flex flex-wrap items-center gap-4 text-xs">
+    <button
+      type="button"
+      id="forecast-clear"
+      class="text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-800"
+      title="Clear all 4 slots and reset URL to /forecast"
+    >Clear</button>
+    <a href="/players" class="text-slate-400 hover:text-slate-200 ml-auto">
+      Find a player → <span class="underline">players search</span>
+    </a>
+    <a href="/reset" class="text-slate-400 hover:text-slate-200">
+      Shadow-reset sim → <span class="underline">reset</span>
+    </a>
+  </div>
+</form>
+
+{# Score preview card — hero section. Inputs live outside the card partial
+   because the card is swapped on every HTMX response; keeping the inputs
+   external preserves focus + caret position while the user types. #}
+<section class="mb-8">
+  <div class="rounded-2xl bg-slate-900/60 ring-1 ring-slate-800 p-4 mb-4">
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-100">Score preview</h2>
+        <p class="text-xs text-slate-500">
+          Pick a final score → see each player's rating up / down, DUPR-style.
+        </p>
+      </div>
+      <div class="text-[10px] uppercase tracking-wider text-slate-500 mono">
+        Source: <span class="text-emerald-300">DUPR official</span>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-center gap-3 mb-4 flex-wrap">
+      <label class="text-[10px] uppercase tracking-wider text-slate-400">Team 1</label>
+      <input
+        type="number" id="score-g1" value="{{ _init_g1 }}" min="0" max="30"
+        class="w-20 text-2xl bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded-lg px-3 py-2 mono text-center"
+      />
+      <span class="text-slate-500 mono text-xl">–</span>
+      <input
+        type="number" id="score-g2" value="{{ _init_g2 }}" min="0" max="30"
+        class="w-20 text-2xl bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded-lg px-3 py-2 mono text-center"
+      />
+      <label class="text-[10px] uppercase tracking-wider text-slate-400">Team 2</label>
+    </div>
+
+    <div class="flex items-center gap-2 flex-wrap text-xs" id="score-quick-picks">
+      <span class="text-slate-500">Quick picks:</span>
+      {% for g1, g2 in [(11,0),(11,4),(11,7),(11,9),(15,11),(9,11),(7,11),(4,11),(0,11)] %}
+        <button
+          type="button"
+          data-g1="{{ g1 }}" data-g2="{{ g2 }}"
+          class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 mono text-slate-300"
+        >{{ g1 }}–{{ g2 }}</button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div id="score-preview-card" class="min-h-[100px]">
+    <div class="text-slate-500 text-sm p-4 rounded-lg bg-slate-900/50 ring-1 ring-slate-800">
+      Pick 4 players via DUPR search above and the DUPR-official forecast card
+      will appear here with live per-player deltas.
+    </div>
+  </div>
+</section>
+
+{#
+  Full score matrix.
+
+  The score-preview card above answers "what happens at THIS score?". The
+  matrix below answers "what happens at EVERY plausible score?". Always
+  visible so the submit button is discoverable; the matrix itself only
+  fills in after a button click (HTMX swap into #forecast-results).
+
+  Two sources, two buttons:
+    - DUPR official  — always available. One round-trip per game format
+      (to-11, to-15) returns impacts for every loser score, so this is
+      fast (~2 API calls) and authoritative.
+    - Local model    — hidden behind Settings → Dev "Show local model
+      forecast", since the card above is the default public UX and we
+      want to avoid surfacing approximations next to DUPR's numbers.
+
+  Both buttons POST the 4-player form via hx-include so the server gets
+  ratings + reliabilities + DUPR ids without the user having to re-enter
+  anything.
+#}
+<section id="forecast-matrix-wrap" class="mb-12">
+  <div class="flex items-end justify-between flex-wrap gap-3 mb-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Full score matrix</h2>
+      <p class="text-xs text-slate-500">
+        Every plausible final score in one table. Click a button to run it.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button
+        type="button"
+        hx-post="/forecast/matrix/official"
+        hx-include="#forecast-form"
+        hx-target="#forecast-results"
+        hx-swap="innerHTML"
+        hx-indicator="#matrix-spinner"
+        class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-4 py-2 rounded-lg text-sm"
+      >
+        Forecast matrix (DUPR)
+      </button>
+      <button
+        type="button"
+        data-duprly-dev="allow_local_forecast"
+        hx-post="/forecast"
+        hx-include="#forecast-form"
+        hx-target="#forecast-results"
+        hx-swap="innerHTML"
+        hx-indicator="#matrix-spinner"
+        class="hidden bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-slate-200 font-semibold px-4 py-2 rounded-lg text-sm"
+        title="Dev-only: fitted local predictor"
+      >
+        Forecast matrix (local)
+      </button>
+      <span id="matrix-spinner" class="htmx-indicator text-xs text-emerald-400">running…</span>
+    </div>
+  </div>
+  <div id="forecast-results">
+    {% if rows %}
+      {% include "partials/forecast_table.html" %}
+    {% else %}
+      <div class="rounded-2xl bg-slate-900/50 ring-1 ring-slate-800 p-6 text-sm text-slate-400">
+        <p>
+          Pick 4 DUPR players above, then hit
+          <span class="text-emerald-300 font-semibold">Forecast matrix (DUPR)</span>
+          to see how every plausible final score affects each player's rating.
+        </p>
+        <p class="text-xs text-slate-500 mt-2">
+          The matrix uses DUPR's own forecaster. Needs numeric DUPR ids for all
+          4 slots (no short ids like <span class="mono">L2PLVZ</span>). Slots filled
+          via the search above are always good to go.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+{% include "partials/fill_slot_js.html" %}
+
+<script>
+  (function () {
+    const s = window.__DUPRLY_SETTINGS || {};
+    document.querySelectorAll('[data-duprly-dev]').forEach((el) => {
+      const key = el.dataset.duprlyDev;
+      if (s[key]) el.classList.remove('hidden');
+    });
+  })();
+
+  // URL state sync.
+  //
+  // The forecast page's canonical URL encodes the 4 picked DUPR ids as path
+  // segments and the chosen final score as query params:
+  //   /forecast/<id1>/<id2>/<id3>/<id4>?g1=11&g2=7
+  //
+  // We replaceState on every slot fill / score change so:
+  //   1) copy-pasting the URL reproduces the exact view
+  //   2) clicking a player profile link and hitting back restores all 4
+  //      picks + the score (browser reloads /forecast/<ids> from server)
+  //
+  // We only write a 4-id path when all 4 slots are populated — partial URLs
+  // like /forecast/<id>/<id> aren't supported server-side (the route is all
+  // or nothing) and would break a paste.
+  (function () {
+    function currentIds() {
+      return [1,2,3,4].map(i => {
+        const el = document.getElementById('duprid-' + i);
+        return (el && el.value || '').trim();
+      });
+    }
+    function syncUrl() {
+      const ids = currentIds();
+      const g1 = (document.getElementById('score-g1') || {}).value;
+      const g2 = (document.getElementById('score-g2') || {}).value;
+      let path = '/forecast';
+      if (ids.every(Boolean)) {
+        path += '/' + ids.map(encodeURIComponent).join('/');
+      }
+      const qs = new URLSearchParams();
+      if (g1 !== '' && g1 != null) qs.set('g1', g1);
+      if (g2 !== '' && g2 != null) qs.set('g2', g2);
+      const qsStr = qs.toString();
+      const next = qsStr ? path + '?' + qsStr : path;
+      if (next !== (location.pathname + location.search)) {
+        try { history.replaceState(null, '', next); } catch (_) {}
+      }
+    }
+    // Expose so fillSlot() can call us; also sync on score edits.
+    window.__duprlySyncForecastUrl = syncUrl;
+    document.addEventListener('duprly:slot-filled', syncUrl);
+    ['score-g1','score-g2'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', syncUrl);
+    });
+
+    const clearBtn = document.getElementById('forecast-clear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        // Hard reload to /forecast so server-side default-user prefill runs
+        // again. A soft in-place clear is possible but complicates the
+        // prefill code path for minimal win.
+        window.location.assign('/forecast');
+      });
+    }
+  })();
+
+  // Score preview card — re-renders /forecast/card on every input change.
+  (function () {
+    const card = document.getElementById('score-preview-card');
+    const g1Input = document.getElementById('score-g1');
+    const g2Input = document.getElementById('score-g2');
+    if (!card || !g1Input || !g2Input) return;
+
+    let inflight = null;
+    let debounceTimer = null;
+
+    function readVal(sel) {
+      const el = document.querySelector(sel);
+      return el && el.value !== '' ? el.value : '';
+    }
+    function readNum(sel) {
+      const v = readVal(sel);
+      const n = Number(v);
+      return Number.isFinite(n) && v !== '' ? n : null;
+    }
+    function readName(slot) {
+      const hidden = document.getElementById('name-' + slot);
+      if (hidden && hidden.value) return hidden.value;
+      const search = document.getElementById('search-' + slot);
+      if (search && search.value && !/^\d+$/.test(search.value.trim())) return search.value.trim();
+      return '';
+    }
+
+    function allRatingsValid() {
+      return ['#r1', '#r2', '#r3', '#r4'].every(sel => {
+        const n = readNum(sel);
+        return n != null && n >= 1 && n <= 8.5;
+      });
+    }
+
+    function preferMode() {
+      const s = window.__DUPRLY_SETTINGS || {};
+      return s.allow_local_forecast ? 'official' : 'official_only';
+    }
+
+    function refresh() {
+      if (!allRatingsValid()) {
+        card.innerHTML = '<div class="text-slate-500 text-sm p-4 rounded-lg bg-slate-900/50 ring-1 ring-slate-800">'
+          + 'Pick 4 players via DUPR search above and the DUPR-official forecast card will appear here.'
+          + '</div>';
+        return;
+      }
+      const g1 = Number(g1Input.value);
+      const g2 = Number(g2Input.value);
+      if (!Number.isFinite(g1) || !Number.isFinite(g2)) return;
+
+      const params = new URLSearchParams();
+      params.set('r1', readVal('#r1'));
+      params.set('r2', readVal('#r2'));
+      params.set('r3', readVal('#r3'));
+      params.set('r4', readVal('#r4'));
+      ['rel1', 'rel2', 'rel3', 'rel4'].forEach(k => {
+        const v = readVal('#' + k);
+        if (v !== '') params.set(k, v);
+      });
+      params.set('games1', String(g1));
+      params.set('games2', String(g2));
+      params.set('prefer', preferMode());
+      for (let i = 1; i <= 4; i++) {
+        const n = readName(i);
+        if (n) params.set('name' + i, n);
+        const age = readVal('#age-' + i);
+        if (age) params.set('age' + i, age);
+        const gen = readVal('#gender-' + i);
+        if (gen) params.set('gender' + i, gen);
+        const loc = readVal('#loc-' + i);
+        if (loc) params.set('loc' + i, loc);
+        const img = readVal('#img-' + i);
+        if (img) params.set('img' + i, img);
+        const did = readVal('#duprid-' + i);
+        if (did) params.set('duprid' + i, did);
+      }
+
+      if (inflight) { try { inflight.abort(); } catch (_) {} }
+      const ctrl = new AbortController();
+      inflight = ctrl;
+      fetch('/forecast/card?' + params.toString(), { signal: ctrl.signal })
+        .then(r => r.text())
+        .then(html => {
+          card.innerHTML = html;
+          const s = window.__DUPRLY_SETTINGS || {};
+          if (s.show_debug_info) {
+            card.querySelectorAll('[data-duprly-debug="1"]').forEach(el => el.classList.remove('hidden'));
+          }
+        })
+        .catch(err => {
+          if (err && err.name === 'AbortError') return;
+          card.innerHTML = '<div class="text-rose-300 text-sm p-4 rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30">'
+            + 'Forecast failed: ' + (err && err.message ? err.message : err) + '</div>';
+        });
+    }
+
+    function debouncedRefresh() {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refresh, 120);
+    }
+
+    ['r1','r2','r3','r4','rel1','rel2','rel3','rel4'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', debouncedRefresh);
+    });
+    g1Input.addEventListener('input', debouncedRefresh);
+    g2Input.addEventListener('input', debouncedRefresh);
+    document.addEventListener('duprly:slot-filled', debouncedRefresh);
+
+    document.querySelectorAll('#score-quick-picks button[data-g1]').forEach(btn => {
+      btn.addEventListener('click', function () {
+        g1Input.value = btn.dataset.g1;
+        g2Input.value = btn.dataset.g2;
+        if (window.__duprlySyncForecastUrl) window.__duprlySyncForecastUrl();
+        refresh();
+      });
+    });
+
+    refresh();
+  })();
+</script>
+{% endblock %}

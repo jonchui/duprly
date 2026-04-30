@@ -1,0 +1,86 @@
+{% set hit_count = forecast.rows | selectattr("hits_goal") | list | length %}
+
+<section class="mb-6">
+  <div class="grid md:grid-cols-3 gap-4">
+    <div class="rounded-xl p-5 {% if forecast.hits_goal %}bg-emerald-500/10 ring-1 ring-emerald-400/40{% else %}bg-rose-500/10 ring-1 ring-rose-400/40{% endif %}">
+      <div class="text-xs uppercase {% if forecast.hits_goal %}text-emerald-300{% else %}text-rose-300{% endif %}">
+        Goal: {{ "%+.3f"|format(forecast.target_delta) }}
+      </div>
+      <div class="mt-2 text-3xl font-bold mono {% if forecast.hits_goal %}text-emerald-200{% else %}text-rose-200{% endif %}">
+        {% if forecast.hits_goal %}Achievable{% else %}Not achievable{% endif %}
+      </div>
+      <div class="text-xs {% if forecast.hits_goal %}text-emerald-300/70{% else %}text-rose-300/70{% endif %} mt-1">
+        {% if forecast.hits_goal %}
+          {{ hit_count }} of {{ forecast.rows | length }} scores hit your goal
+        {% else %}
+          max possible gain is {{ "%+.4f"|format(forecast.best_case_delta) }} — not enough for this goal in one match
+        {% endif %}
+      </div>
+    </div>
+    <div class="rounded-xl p-5 bg-slate-900 ring-1 ring-slate-800">
+      <div class="text-xs uppercase text-slate-400">Best case (you as P{{ forecast.me_slot }})</div>
+      <div class="mt-2 text-3xl font-bold mono text-emerald-300">{{ "%+.4f"|format(forecast.best_case_delta) }}</div>
+      <div class="text-xs text-slate-500 mt-1">at {{ forecast.best_score }} · post-rating {{ "%.3f"|format(forecast.my_pre_rating + forecast.best_case_delta) }}</div>
+    </div>
+    <div class="rounded-xl p-5 bg-slate-900 ring-1 ring-slate-800">
+      <div class="text-xs uppercase text-slate-400">Worst case</div>
+      <div class="mt-2 text-3xl font-bold mono text-rose-300">{{ "%+.4f"|format(forecast.worst_case_delta) }}</div>
+      <div class="text-xs text-slate-500 mt-1">at {{ forecast.worst_score }} · post-rating {{ "%.3f"|format(forecast.my_pre_rating + forecast.worst_case_delta) }}</div>
+    </div>
+  </div>
+</section>
+
+<div class="mb-2 text-sm text-slate-400 flex flex-wrap gap-x-4 gap-y-1 items-center">
+  <span>Sorted: goal-hitting scores first, then by surplus.</span>
+  <span>Pre-match: <span class="mono text-slate-200">{{ "%.3f"|format(forecast.my_pre_rating) }}</span></span>
+  <span class="ml-auto text-xs text-slate-500">
+    Scores are <em>match totals</em> across best-of-3 games (e.g. 22–13 = won 11-7, 11-6).
+  </span>
+</div>
+
+<div class="rounded-xl ring-1 ring-slate-800 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-900 text-slate-400">
+      <tr>
+        <th class="px-3 py-2 text-left">Score</th>
+        <th class="px-3 py-2 text-left">Winner</th>
+        <th class="px-3 py-2 text-right mono">My Δ</th>
+        <th class="px-3 py-2 text-right mono">My post-rating</th>
+        <th class="px-3 py-2 text-right mono">Gap to goal</th>
+        <th class="px-3 py-2 text-center">Hits goal?</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-800 mono">
+      {% for r in forecast.rows %}
+      <tr class="{% if r.hits_goal %}bg-emerald-500/5 hover:bg-emerald-500/10{% else %}hover:bg-slate-900/60{% endif %}">
+        <td class="px-3 py-2 font-semibold">{{ r.games1 }}–{{ r.games2 }}</td>
+        <td class="px-3 py-2">
+          <span class="chip {% if r.winner == 1 %}bg-emerald-500/20 text-emerald-300{% else %}bg-rose-500/20 text-rose-300{% endif %}">
+            Team {{ r.winner }}
+          </span>
+        </td>
+        <td class="px-3 py-2 text-right {% if r.my_delta > 0 %}text-emerald-300{% elif r.my_delta < 0 %}text-rose-300{% else %}text-slate-400{% endif %}">
+          {{ "%+.4f"|format(r.my_delta) }}
+        </td>
+        <td class="px-3 py-2 text-right">{{ "%.3f"|format(r.my_post_rating) }}</td>
+        <td class="px-3 py-2 text-right {% if r.gap_to_goal >= 0 %}text-emerald-300{% else %}text-slate-500{% endif %}">
+          {{ "%+.4f"|format(r.gap_to_goal) }}
+        </td>
+        <td class="px-3 py-2 text-center">
+          {% if r.hits_goal %}
+            <span class="chip bg-emerald-500/20 text-emerald-300">yes</span>
+          {% else %}
+            <span class="chip bg-slate-800 text-slate-500">no</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="mt-3 text-xs text-slate-500">
+  Approximation based on the same fitted predictor as the /forecast page —
+  not DUPR's official calculation. Reliability can shift these numbers up
+  or down by 20–50% for newer players.
+</p>

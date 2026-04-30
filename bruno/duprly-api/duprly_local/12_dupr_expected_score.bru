@@ -1,0 +1,26 @@
+meta {
+  name: 12 · DUPR expected-score (live)
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{duprly_base}}/api/dupr/expected-score
+  body: json
+}
+
+body:json {
+  {
+    "teams": [
+      { "player1_id": 4405492894, "player2_id": 7511597513 },
+      { "player1_id": 7270240621, "player2_id": 5651921565 }
+    ],
+    "winning_score": 11,
+    "event_format": "DOUBLES"
+  }
+}
+
+docs {
+  Lighter sibling of /forecast — returns only the predicted losing-side
+  score per team (no probabilities, no rating impacts).
+}

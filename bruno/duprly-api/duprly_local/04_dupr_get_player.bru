@@ -1,0 +1,14 @@
+meta {
+  name: 04 · DUPR get player (cache)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{duprly_base}}/api/dupr/players/4405492894
+}
+
+docs {
+  Returns a single cached DUPR player row or 404 if not in cache.
+  Use POST /api/dupr/players/{id}/refresh to force-refresh from live DUPR.
+}

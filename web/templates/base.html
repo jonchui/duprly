@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{% block title %}duprly — pickleball rating sandbox{% endblock %}</title>
+    <meta name="description" content="Forecast DUPR rating impact, run your own JUPR (DUPR mirror), and see FUPR crowd ratings for any player." />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.2" defer></script>
+    <script>
+      // Hydrate `window.__DUPRLY_SETTINGS` from localStorage as early as
+      // possible so page-level scripts (e.g. forecast.html) can read it
+      // synchronously during DOMContentLoaded. Keep defaults aligned with
+      // settings.html — this is the single source of truth when a user
+      // hasn't opened /settings yet.
+      (function () {
+        const DEFAULTS = {
+          allow_local_forecast: false,
+          show_debug_info: false,
+        };
+        try {
+          const raw = localStorage.getItem('duprly.settings.v1');
+          const parsed = raw ? JSON.parse(raw) : {};
+          window.__DUPRLY_SETTINGS = { ...DEFAULTS, ...parsed };
+        } catch (_e) {
+          window.__DUPRLY_SETTINGS = { ...DEFAULTS };
+        }
+      })();
+    </script>
+    <style>
+      :root { color-scheme: light dark; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .grad { background: linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#0b3b2e 100%); }
+      .chip { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium; }
+    </style>
+  </head>
+  <body class="min-h-full bg-slate-950 text-slate-100 antialiased">
+    <header class="border-b border-slate-800">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-6">
+        <a href="/" class="flex items-center gap-2 font-semibold">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+          duprly
+        </a>
+        <nav class="flex items-center gap-4 text-sm text-slate-300">
+          <a href="/forecast" class="hover:text-white">Forecast</a>
+          <a href="/players" class="hover:text-white">Players</a>
+          <a href="/reset" class="hover:text-white">Reset sim</a>
+          <a href="/jupr" class="hover:text-white">JUPR</a>
+          <a href="/api/docs" class="hover:text-white">API</a>
+          <a href="/settings" class="hover:text-white text-slate-400">Settings</a>
+        </nav>
+        <div class="ml-auto text-xs text-slate-500 mono hidden sm:block">
+          fitted K={{ "%.4f"|format(0.0289) }} · scale=231.6
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="border-t border-slate-800 mt-16">
+      <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500 flex flex-wrap gap-4 justify-between">
+        <div>
+          <strong class="text-slate-400">duprly</strong> · reverse-engineered DUPR forecast (approximation, not official) ·
+          <a class="underline hover:text-slate-300" href="/api/docs">public API</a>
+        </div>
+        <div>
+          built on the fitted model in <span class="mono">dupr_model.json</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
