@@ -19,6 +19,12 @@ import json
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from dupr_rate_limit import (
+    DuprAccountLockedOut,
+    DuprRateLimitWaitTooLong,
+    get_limiter,
+)
+
 
 def _resolve_tls_verify() -> "bool | str":
     """
@@ -163,6 +169,87 @@ class DuprClient(object):
         rc = self.login_user(username, password)
         return rc
 
+    # ------------------------------------------------------------------
+    # Rate-limited transport helpers
+    #
+    # All outgoing calls to api.dupr.gg MUST go through these wrappers so
+    # the process-wide limiter (`dupr_rate_limit.get_limiter()`) gets a
+    # chance to throttle / back off / lock out. Adding a new endpoint?
+    # Use `_rl_get` / `_rl_post` / `_rl_put` instead of bare `requests.*`.
+    #
+    # See `dupr_rate_limit.py` for the rationale (the "2026-04-30 runaway
+    # loop" comment) and the policy knobs.
+    # ------------------------------------------------------------------
+
+    def _rl_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        is_login: bool = False,
+        **kwargs,
+    ) -> Response:
+        """Shared rate-limited HTTP call.
+
+        Acquires one token from the global limiter, makes the call, then
+        feeds the response back so the limiter can update its backoff
+        state (Retry-After, consecutive 429s, login lockouts).
+
+        On `DuprAccountLockedOut` / `DuprRateLimitWaitTooLong` we return
+        a synthetic `Response` with a 503 status so callers don't have
+        to learn a new exception type. The `r.headers["X-Duprly-Limiter"]`
+        marker tells curious callers what happened. Existing callers that
+        only check `r.status_code` will treat this as a transient upstream
+        failure, which is exactly right.
+        """
+        limiter = get_limiter()
+        try:
+            limiter.acquire(is_login=is_login)
+        except (DuprAccountLockedOut, DuprRateLimitWaitTooLong) as exc:
+            logger.warning(f"DUPR rate limiter refused {method} {url}: {exc}")
+            r = Response()
+            r.status_code = 503
+            r._content = (
+                f'{{"status":"FAILURE","message":"{type(exc).__name__}: {exc}"}}'
+            ).encode("utf-8")
+            r.headers["Content-Type"] = "application/json"
+            r.headers["X-Duprly-Limiter"] = type(exc).__name__
+            return r
+
+        try:
+            r = requests.request(
+                method, url, verify=self._tls_verify, **kwargs,
+            )
+        except requests.exceptions.SSLError as exc:
+            logger.error(
+                f"{method} {url}: TLS verification failed talking to DUPR ({exc}). "
+                f"Set DUPR_TLS_VERIFY=0 in your .env to bypass (dev only) or "
+                f"upgrade certifi / fix your trust store."
+            )
+            # Don't punish the limiter for a TLS misconfig — that's our
+            # problem, not DUPR's. Return an empty Response with status 0
+            # so the legacy callers (login_user) can fall back gracefully.
+            r = Response()
+            r.status_code = 0
+            return r
+        except requests.exceptions.RequestException as exc:
+            logger.warning(f"{method} {url}: network error talking to DUPR ({exc})")
+            r = Response()
+            r.status_code = 0
+            return r
+
+        # Always notify the limiter so backoff / lockout counters stay
+        # accurate, even on TLS / network errors above (they short-circuit
+        # before this point — limiter only sees real DUPR responses).
+        try:
+            headers = dict(r.headers) if r.headers else None
+        except Exception:
+            headers = None
+        limiter.release_after_response(
+            r.status_code, is_login=is_login, response_headers=headers,
+        )
+        return r
+
     def login_user(self, username: str, password: str) -> int:
         """Low level just do login (will need refresh after)"""
         body = {
@@ -170,19 +257,20 @@ class DuprClient(object):
             "password": password,
         }
         logger.debug(f"login user: {username}")
-        try:
-            r = requests.post(
-                self.u("/auth/v1.0/login/"), json=body, verify=self._tls_verify
-            )
-        except requests.exceptions.SSLError as exc:
-            logger.error(
-                f"login_user: TLS verification failed talking to DUPR ({exc}). "
-                f"Set DUPR_TLS_VERIFY=0 in your .env to bypass (dev only) or "
-                f"upgrade certifi / fix your trust store."
-            )
+        r = self._rl_request(
+            "POST",
+            self.u("/auth/v1.0/login/"),
+            is_login=True,
+            json=body,
+        )
+        if r.status_code == 0:
+            # TLS / network error — already logged in `_rl_request`.
             return 0
         logger.debug(f"login user: {r.status_code}")
-        logger.debug(f"login user: {r.request.url}")
+        try:
+            logger.debug(f"login user: {r.request.url}")
+        except Exception:
+            pass  # synthetic 503 from the limiter has no request
         if r.status_code == 200:
             data = r.json()
             self.ppj(data)
@@ -196,27 +284,25 @@ class DuprClient(object):
 
     def dupr_get(self, url, name: str = "") -> Response:
         logger.debug(f"GET: {name} : {url}")
-        r = requests.get(self.u(url), headers=self.headers(), verify=self._tls_verify)
+        r = self._rl_request("GET", self.u(url), headers=self.headers())
         logger.debug(f"return: {r.status_code}")
         # 401 = "Session expired" (DUPR's signal to re-login). 403 = forbidden
         # (keep the legacy refresh path). Both should trigger a fresh login
-        # against the stored creds and a single retry.
+        # against the stored creds and a single retry — but the relogin
+        # itself goes through the limiter, so a flagged account can't loop.
         if r.status_code in (401, 403):
             rc = self._relogin() if r.status_code == 401 else self.refresh_user()
             if rc == 200:
                 logger.debug(f"retry GET after relogin: {url}")
-                r = requests.get(
-                    self.u(url), headers=self.headers(), verify=self._tls_verify
-                )
+                r = self._rl_request("GET", self.u(url), headers=self.headers())
                 logger.debug(f"return: {r.status_code}")
         self.failed = r.status_code != 200
         return r
 
     def dupr_post(self, url, json_data=None, name: str = "") -> Response:
         logger.debug(f"POST: {name} : {url}")
-        headers = self.headers()
-        r = requests.post(
-            self.u(url), headers=headers, json=json_data, verify=self._tls_verify
+        r = self._rl_request(
+            "POST", self.u(url), headers=self.headers(), json=json_data,
         )
         logger.debug(f"return: {r.status_code}")
         # See dupr_get for the 401/403 rationale — re-login on 401 ("Session
@@ -225,11 +311,8 @@ class DuprClient(object):
             rc = self._relogin() if r.status_code == 401 else self.refresh_user()
             if rc == 200:
                 logger.debug(f"retry POST after relogin: {url}")
-                r = requests.post(
-                    self.u(url),
-                    headers=self.headers(),
-                    json=json_data,
-                    verify=self._tls_verify,
+                r = self._rl_request(
+                    "POST", self.u(url), headers=self.headers(), json=json_data,
                 )
                 logger.debug(f"return: {r.status_code}")
         self.failed = r.status_code != 200
@@ -237,20 +320,16 @@ class DuprClient(object):
 
     def dupr_put(self, url, json_data=None, name: str = "") -> Response:
         logger.debug(f"PUT: {name} : {url}")
-        headers = self.headers()
-        r = requests.put(
-            self.u(url), headers=headers, json=json_data, verify=self._tls_verify
+        r = self._rl_request(
+            "PUT", self.u(url), headers=self.headers(), json=json_data,
         )
         logger.debug(f"return: {r.status_code}")
         if r.status_code == 403:
             rc = self.refresh_user()
             if rc == 200:
                 logger.debug(f"PUT: {url}")
-                r = requests.put(
-                    self.u(url),
-                    headers=self.headers(),
-                    json=json_data,
-                    verify=self._tls_verify,
+                r = self._rl_request(
+                    "PUT", self.u(url), headers=self.headers(), json=json_data,
                 )
                 logger.debug(f"return: {r.status_code}")
         self.failed = r.status_code != 200

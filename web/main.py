@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
@@ -78,6 +79,42 @@ def create_app() -> FastAPI:
     # Routes
     app.include_router(api_router)
     app.include_router(pages_router)
+
+    # ------------------------------------------------------------------
+    # Crawler hardening — added 2026-04-30 after a search-engine bot
+    # walked /dupr/player/<dupr_id> for ~170 IDs in quick succession,
+    # which fanned out to DUPR's /history endpoint and got our account
+    # rate-limited (429s) and then flagged (400 on login). The new
+    # `dupr_rate_limit.DuprRateLimiter` is the durable fix; this
+    # robots.txt is a polite ask so well-behaved bots don't even try.
+    # ------------------------------------------------------------------
+    @app.get("/robots.txt", include_in_schema=False)
+    def robots_txt() -> PlainTextResponse:
+        body = (
+            "User-agent: *\n"
+            # /dupr/player/<id> triggers a live DUPR API call that we
+            # cannot serve cheaply; keep crawlers out of it.
+            "Disallow: /dupr/player/\n"
+            "Disallow: /api/\n"
+            "Crawl-delay: 30\n"
+        )
+        return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=3600"})
+
+    @app.get("/healthz", include_in_schema=False)
+    def healthz() -> JSONResponse:
+        """Liveness + DUPR rate-limiter snapshot.
+
+        Useful for `curl https://forecast.picklewith.me/healthz` to see
+        whether the limiter is currently in a backoff or lockout window.
+        """
+        from dupr_rate_limit import get_limiter
+
+        return JSONResponse(
+            {
+                "status": "ok",
+                "dupr_rate_limiter": get_limiter().snapshot(),
+            }
+        )
 
     return app
 
