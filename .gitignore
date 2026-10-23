@@ -37,3 +37,14 @@ duprly_web.db
 
 # Deploy key for VPS (private key only; add to GitHub Secrets as VPS_SSH_PRIVATE_KEY)
 .github/deploy-key
+.vercel
+
+# Local agent/scratch/scraped data (public repo: keep PII out)
+.claude/
+.cursor/
+/data/
+duprly_v2/data/
+.pytest_cache/
+command_audit.jsonl
+COMMAND_LOG.md
+test_output.txt
