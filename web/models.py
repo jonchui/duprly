@@ -20,6 +20,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -115,6 +116,17 @@ class DuprCachedPlayer(Base):
     short_address: Mapped[Optional[str]] = mapped_column(String(128))
 
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class TournamentForecastCache(Base):
+    """A shareable cached tournament forecast payload."""
+
+    __tablename__ = "tournament_forecast_cache"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    title: Mapped[Optional[str]] = mapped_column(String(160))
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class FuprVote(Base):

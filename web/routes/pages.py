@@ -17,6 +17,7 @@ from web.services import fupr as fupr_svc
 from web.services import goal as goal_svc
 from web.services import jupr as jupr_svc
 from web.services import shadow as shadow_svc
+from web.services import tournament_forecast as tournament_svc
 
 _TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 templates = Jinja2Templates(directory=os.path.abspath(_TEMPLATES_DIR))
@@ -321,6 +322,123 @@ def forecast_matrix_official(
         request,
         "partials/forecast_table.html",
         {"rows": rows, "inputs": inputs, "matrix_source": "DUPR official"},
+    )
+
+
+@router.post("/forecast/tournament", response_class=HTMLResponse)
+def forecast_tournament(
+    request: Request,
+    session: Session = Depends(get_session),
+    roster_text: str = Form(default=""),
+    bracket_url: str = Form(default=""),
+    target_name: str = Form(default="Jonathan Chui"),
+    target_rating: float = Form(default=tournament_svc.DEFAULT_TARGET_RATING),
+    live_lookup: bool = Form(default=True),
+):
+    """
+    Tournament-planner tab: parse a pasted roster / public bracket page and
+    forecast the target player's path to a goal rating.
+
+    URL import is best-effort only. Protected PickleballBrackets pages usually
+    require authenticated browser state that a server-side GET cannot see, so
+    the UI keeps paste-import as the reliable path.
+    """
+    warnings: list[str] = []
+    raw = (roster_text or "").strip()
+    url = (bracket_url or "").strip()
+    if not raw and url:
+        try:
+            raw = tournament_svc.fetch_public_bracket_text(url)
+        except Exception as exc:  # noqa: BLE001
+            return _tr(
+                request,
+                "partials/tournament_forecast_results.html",
+                {
+                    "analysis": None,
+                    "error": str(exc),
+                    "warnings": [
+                        "If the bracket is behind login, open it in your browser and paste the visible roster text."
+                    ],
+                },
+            )
+        warnings.append("URL import used a public HTML fetch. Verify the parsed names before trusting the forecast.")
+
+    try:
+        analysis = tournament_svc.analyze(
+            session,
+            raw_text=raw,
+            target_name=target_name,
+            target_rating=target_rating,
+            live_lookup=live_lookup,
+        )
+        analysis.warnings[:0] = warnings
+    except Exception as exc:  # noqa: BLE001
+        return _tr(
+            request,
+            "partials/tournament_forecast_results.html",
+            {
+                "analysis": None,
+                "error": str(exc),
+                "warnings": warnings,
+            },
+        )
+
+    from web.models import TournamentForecastCache
+
+    cache_id = tournament_svc.create_share_id()
+    payload = tournament_svc.analysis_to_payload(analysis)
+    session.add(
+        TournamentForecastCache(
+            id=cache_id,
+            title=f"{analysis.target_player.name} tournament forecast",
+            payload_json=tournament_svc.payload_to_json(payload),
+        )
+    )
+    share_url = f"{str(request.base_url).rstrip('/')}/forecast/tournament/{cache_id}"
+
+    return _tr(
+        request,
+        "partials/tournament_forecast_results.html",
+        {
+            "analysis": analysis,
+            "error": None,
+            "warnings": analysis.warnings,
+            "share_url": share_url,
+        },
+    )
+
+
+@router.get("/forecast/tournament/{cache_id}", response_class=HTMLResponse)
+def forecast_tournament_share(
+    cache_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Render a cached, shareable tournament forecast."""
+    from web.models import TournamentForecastCache
+
+    row = session.get(TournamentForecastCache, cache_id)
+    if row is None:
+        return HTMLResponse(
+            '<div class="max-w-2xl mx-auto p-8 text-center">'
+            '<h1 class="text-2xl font-bold mb-2">Forecast not found</h1>'
+            '<p class="text-slate-400">That cached tournament forecast does not exist.</p>'
+            "</div>",
+            status_code=404,
+        )
+    analysis = tournament_svc.payload_from_json(row.payload_json)
+    share_url = f"{str(request.base_url).rstrip('/')}/forecast/tournament/{cache_id}"
+    return _tr(
+        request,
+        "tournament_forecast_share.html",
+        {
+            "analysis": analysis,
+            "error": None,
+            "warnings": analysis.get("warnings", []),
+            "share_url": share_url,
+            "cache_id": cache_id,
+            "created_at": row.created_at,
+        },
     )
 
 

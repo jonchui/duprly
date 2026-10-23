@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Tournament forecast · duprly{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <a href="/forecast" class="text-xs text-slate-400 hover:text-slate-200 underline">← Back to forecast</a>
+  <h1 class="text-2xl md:text-3xl font-bold mt-3 mb-2">Cached tournament forecast</h1>
+  <p class="text-slate-400">
+    This is a saved snapshot. DUPR ratings and resolutions are the values from when the forecast was created.
+  </p>
+</div>
+
+{% include "partials/tournament_forecast_results.html" %}
+{% endblock %}

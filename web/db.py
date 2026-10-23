@@ -30,6 +30,8 @@ def _resolve_database_url() -> str:
             elif val.startswith("postgresql://"):
                 val = "postgresql+psycopg://" + val[len("postgresql://"):]
             return val
+    if os.environ.get("VERCEL"):
+        return "sqlite+pysqlite:////tmp/duprly_web.db"
     return "sqlite+pysqlite:///./duprly_web.db"
 
 

@@ -1,0 +1,22 @@
+.claude/
+.venv/
+.venv-local/
+.venv-web/
+__pycache__/
+*.pyc
+*.pyo
+
+# Local/generated analysis data that should not be uploaded with the app.
+data/
+duprly_v2/
+extensions/
+*.db
+*.sqlite
+*.sqlite3
+*.xlsx
+*.log
+
+# Local env/secrets.
+.env
+.env.local
+.env.*.local

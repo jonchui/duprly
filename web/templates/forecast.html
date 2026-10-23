@@ -35,6 +35,32 @@
   <a class="underline hover:text-slate-300" href="https://dashboard.dupr.com" target="_blank" rel="noopener">forecaster</a>.
 </p>
 
+<div class="flex items-center gap-2 mb-6" role="tablist" aria-label="Forecast tools">
+  <button
+    type="button"
+    id="forecast-tab-tournament-btn"
+    data-forecast-tab-btn="tournament"
+    class="px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 text-sm font-semibold"
+    role="tab"
+    aria-controls="forecast-tab-tournament"
+    aria-selected="true"
+  >
+    Tournament planner
+  </button>
+  <button
+    type="button"
+    id="forecast-tab-match-btn"
+    data-forecast-tab-btn="match"
+    class="px-4 py-2 rounded-lg bg-slate-900 text-slate-300 ring-1 ring-slate-800 text-sm font-semibold hover:bg-slate-800"
+    role="tab"
+    aria-controls="forecast-tab-match"
+    aria-selected="false"
+  >
+    Match forecast
+  </button>
+</div>
+
+<div id="forecast-tab-match" data-forecast-tab-panel="match" role="tabpanel" aria-labelledby="forecast-tab-match-btn" class="hidden">
 <form
   id="forecast-form"
   class="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6"
@@ -219,10 +245,418 @@
     {% endif %}
   </div>
 </section>
+</div>
+
+<section
+  id="forecast-tab-tournament"
+  data-forecast-tab-panel="tournament"
+  role="tabpanel"
+  aria-labelledby="forecast-tab-tournament-btn"
+  class="mb-12"
+>
+  <div class="rounded-2xl bg-slate-900/70 ring-1 ring-slate-800 p-5 mb-6">
+    <div class="flex items-start justify-between gap-4 flex-wrap mb-5">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-100">Tournament planner</h2>
+        <p class="text-sm text-slate-400 mt-1 max-w-3xl">
+          Paste the PickleballBrackets player list, or try a public bracket URL.
+          We pair teams in pasted order, look up DUPR ratings, then calculate
+          your pure forecasts and what score path gets you to a target DUPR.
+        </p>
+      </div>
+      <button
+        type="button"
+        id="dupr-login-open"
+        class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-sm text-slate-200"
+      >
+        DUPR login for protected links
+      </button>
+    </div>
+
+    <div
+      id="dupr-credential-panel"
+      class="hidden rounded-xl bg-slate-950/70 ring-1 ring-slate-800 p-4 mb-5"
+      aria-live="polite"
+    >
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div class="text-sm font-semibold text-slate-200">DUPR credentials</div>
+          <p class="text-xs text-slate-500 mt-1 max-w-2xl">
+            Stored only in this browser, encrypted with a passphrase you choose.
+            The passphrase is never stored, so you must unlock before using a protected import.
+          </p>
+        </div>
+        <button type="button" id="dupr-logout" class="text-xs text-slate-400 hover:text-slate-200">
+          Sign out / forget
+        </button>
+      </div>
+      <div class="grid md:grid-cols-4 gap-3 mt-4">
+        <input
+          id="dupr-login-email"
+          type="email"
+          autocomplete="username"
+          placeholder="DUPR email"
+          class="bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+        />
+        <input
+          id="dupr-login-password"
+          type="password"
+          autocomplete="current-password"
+          placeholder="DUPR password"
+          class="bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+        />
+        <input
+          id="dupr-login-passphrase"
+          type="password"
+          autocomplete="new-password"
+          placeholder="Local encryption passphrase"
+          class="bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+        />
+        <div class="flex gap-2">
+          <button
+            type="button"
+            id="dupr-save-login"
+            class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-3 py-2 rounded-lg text-sm"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            id="dupr-unlock-login"
+            class="bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-slate-200 px-3 py-2 rounded-lg text-sm"
+          >
+            Unlock
+          </button>
+        </div>
+      </div>
+      <div id="dupr-login-status" class="text-xs text-slate-500 mt-3">
+        No DUPR credentials loaded.
+      </div>
+    </div>
+
+    <form
+      id="tournament-forecast-form"
+      method="post"
+      action="/forecast/tournament"
+      hx-post="/forecast/tournament"
+      hx-target="#tournament-forecast-results"
+      hx-swap="innerHTML"
+      hx-indicator="#tournament-spinner"
+    >
+      <input type="hidden" name="dupr_username" id="dupr-username-hidden" />
+      <input type="hidden" name="dupr_password" id="dupr-password-hidden" />
+      <div class="grid md:grid-cols-3 gap-4 mb-4">
+        <div class="md:col-span-2">
+          <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+            PickleballBrackets URL
+          </label>
+          <input
+            type="url"
+            name="bracket_url"
+            id="tournament-bracket-url"
+            placeholder="https://pickleballbrackets.com/..."
+            class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+          />
+          <p class="text-xs text-slate-500 mt-1">
+            Public pages can be imported directly. For protected pages, paste
+            the roster text from the browser after logging in.
+          </p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Your name</label>
+            <input
+              type="text"
+              name="target_name"
+              value="Jonathan Chui"
+              class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Goal DUPR</label>
+            <input
+              type="number"
+              step="0.001"
+              min="1"
+              max="8.5"
+              name="target_rating"
+              value="4.000"
+              class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm mono"
+            />
+          </div>
+        </div>
+      </div>
+
+      <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+        Paste roster text
+      </label>
+      <textarea
+        name="roster_text"
+        rows="14"
+        class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm mono"
+        placeholder="Sam Agranoff&#10;3.5&#10;--&#10;M&#10;--&#10;Jake Browner&#10;3.0&#10;29&#10;M&#10;Denver CO&#10;Jonathan Chui&#10;3.5&#10;40&#10;M&#10;Superior CO"
+      ></textarea>
+
+      <div class="flex items-center gap-3 flex-wrap mt-4">
+        <input type="hidden" name="live_lookup" value="false" />
+        <label class="inline-flex items-center gap-2 text-xs text-slate-400">
+          <input type="checkbox" name="live_lookup" value="true" checked class="accent-emerald-500" />
+          Live DUPR lookup
+        </label>
+        <button
+          type="submit"
+          class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-4 py-2 rounded-lg text-sm"
+        >
+          Calculate tournament forecast
+        </button>
+        <span id="tournament-spinner" class="htmx-indicator text-xs text-emerald-400">calculating…</span>
+      </div>
+    </form>
+
+    <div
+      id="tournament-progress-log"
+      class="hidden mt-4 rounded-xl bg-slate-950/70 ring-1 ring-slate-800 p-4 text-sm"
+      aria-live="polite"
+    >
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="font-semibold text-slate-200">Tournament forecast progress</div>
+        <div id="tournament-progress-count" class="text-xs mono text-slate-500"></div>
+      </div>
+      <ol id="tournament-progress-lines" class="space-y-1 text-xs text-slate-400"></ol>
+    </div>
+  </div>
+
+  <div id="tournament-forecast-results">
+    <div class="rounded-2xl bg-slate-900/50 ring-1 ring-slate-800 p-6 text-sm text-slate-400">
+      Paste the roster text and calculate to recreate the tournament canvas as a live web tab.
+    </div>
+  </div>
+</section>
 
 {% include "partials/fill_slot_js.html" %}
 
 <script>
+  // Forecast page tabs.
+  (function () {
+    const buttons = Array.from(document.querySelectorAll('[data-forecast-tab-btn]'));
+    const panels = Array.from(document.querySelectorAll('[data-forecast-tab-panel]'));
+    function activate(tab) {
+      buttons.forEach((btn) => {
+        const active = btn.dataset.forecastTabBtn === tab;
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        btn.classList.toggle('bg-emerald-500', active);
+        btn.classList.toggle('text-slate-950', active);
+        btn.classList.toggle('bg-slate-900', !active);
+        btn.classList.toggle('text-slate-300', !active);
+        btn.classList.toggle('ring-1', !active);
+        btn.classList.toggle('ring-slate-800', !active);
+      });
+      panels.forEach((panel) => {
+        panel.classList.toggle('hidden', panel.dataset.forecastTabPanel !== tab);
+      });
+      try { localStorage.setItem('duprly.forecast.tab.v1', tab); } catch (_) {}
+    }
+    buttons.forEach((btn) => btn.addEventListener('click', () => activate(btn.dataset.forecastTabBtn)));
+    activate('tournament');
+  })();
+
+  // Local-only DUPR credential vault for protected imports.
+  (function () {
+    const STORE_KEY = 'duprly.duprCredentials.v1';
+    const panel = document.getElementById('dupr-credential-panel');
+    const openBtn = document.getElementById('dupr-login-open');
+    const saveBtn = document.getElementById('dupr-save-login');
+    const unlockBtn = document.getElementById('dupr-unlock-login');
+    const logoutBtn = document.getElementById('dupr-logout');
+    const emailEl = document.getElementById('dupr-login-email');
+    const passwordEl = document.getElementById('dupr-login-password');
+    const passphraseEl = document.getElementById('dupr-login-passphrase');
+    const statusEl = document.getElementById('dupr-login-status');
+    const hiddenUser = document.getElementById('dupr-username-hidden');
+    const hiddenPass = document.getElementById('dupr-password-hidden');
+    if (!panel || !openBtn || !window.crypto || !window.crypto.subtle) return;
+
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    function bytesToB64(bytes) {
+      return btoa(String.fromCharCode.apply(null, Array.from(bytes)));
+    }
+    function b64ToBytes(b64) {
+      return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    }
+    function setStatus(text, tone) {
+      statusEl.textContent = text;
+      statusEl.className = 'text-xs mt-3 ' + (
+        tone === 'ok' ? 'text-emerald-300' : tone === 'bad' ? 'text-rose-300' : 'text-slate-500'
+      );
+    }
+    function getStored() {
+      try {
+        const raw = localStorage.getItem(STORE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    async function deriveKey(passphrase, salt) {
+      const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 210000, hash: 'SHA-256' },
+        baseKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+    }
+    async function saveCredentials() {
+      const email = (emailEl.value || '').trim();
+      const password = passwordEl.value || '';
+      const passphrase = passphraseEl.value || '';
+      if (!email || !password || passphrase.length < 8) {
+        setStatus('Enter email, password, and an 8+ character local passphrase.', 'bad');
+        return;
+      }
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(passphrase, salt);
+      const payload = JSON.stringify({ email, password });
+      const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(payload)));
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        version: 1,
+        email,
+        salt: bytesToB64(salt),
+        iv: bytesToB64(iv),
+        ciphertext: bytesToB64(ciphertext),
+      }));
+      hiddenUser.value = email;
+      hiddenPass.value = password;
+      passwordEl.value = '';
+      setStatus('Saved and unlocked for this tab. Credentials are encrypted at rest in this browser.', 'ok');
+    }
+    async function unlockCredentials() {
+      const stored = getStored();
+      const passphrase = passphraseEl.value || '';
+      if (!stored) {
+        setStatus('No saved DUPR credentials in this browser.', 'bad');
+        return;
+      }
+      if (!passphrase) {
+        setStatus('Enter your local passphrase to unlock.', 'bad');
+        return;
+      }
+      try {
+        const salt = b64ToBytes(stored.salt);
+        const iv = b64ToBytes(stored.iv);
+        const ciphertext = b64ToBytes(stored.ciphertext);
+        const key = await deriveKey(passphrase, salt);
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+        const parsed = JSON.parse(dec.decode(plain));
+        emailEl.value = parsed.email || stored.email || '';
+        hiddenUser.value = parsed.email || '';
+        hiddenPass.value = parsed.password || '';
+        setStatus('Unlocked for this tab. Sign out to forget it from the browser.', 'ok');
+      } catch (_e) {
+        setStatus('Could not unlock. Check the passphrase.', 'bad');
+      }
+    }
+    function forgetCredentials() {
+      try { localStorage.removeItem(STORE_KEY); } catch (_) {}
+      hiddenUser.value = '';
+      hiddenPass.value = '';
+      passwordEl.value = '';
+      passphraseEl.value = '';
+      setStatus('Signed out. Saved DUPR credentials were removed from this browser.', 'ok');
+    }
+
+    openBtn.addEventListener('click', () => {
+      panel.classList.toggle('hidden');
+      const stored = getStored();
+      if (stored && emailEl && !emailEl.value) emailEl.value = stored.email || '';
+      if (stored) setStatus('Saved credentials found. Enter your local passphrase and unlock before protected import.', null);
+    });
+    saveBtn && saveBtn.addEventListener('click', () => saveCredentials().catch(err => setStatus(err.message || String(err), 'bad')));
+    unlockBtn && unlockBtn.addEventListener('click', () => unlockCredentials().catch(err => setStatus(err.message || String(err), 'bad')));
+    logoutBtn && logoutBtn.addEventListener('click', forgetCredentials);
+
+    const stored = getStored();
+    if (stored) {
+      emailEl.value = stored.email || '';
+      setStatus('Saved DUPR credentials found. Unlock before using protected imports.', null);
+    }
+  })();
+
+  // Tournament planner progress log while HTMX waits on DUPR search.
+  (function () {
+    const form = document.getElementById('tournament-forecast-form');
+    const panel = document.getElementById('tournament-progress-log');
+    const lines = document.getElementById('tournament-progress-lines');
+    const count = document.getElementById('tournament-progress-count');
+    const submit = form && form.querySelector('button[type="submit"]');
+    if (!form || !panel || !lines) return;
+
+    let timer = null;
+    let step = 0;
+    const fun = [
+      'Parsing the pasted bracket text.',
+      'Throwing out headers, city rows, and table crumbs.',
+      'Pairing teammates in pasted order.',
+      'Searching DUPR profiles one player at a time.',
+      'Dodging random names like Cody Commander.',
+      'Beeping the boop bopp while DUPR answers.',
+      'Aggregating team averages and win probabilities.',
+      'Calculating Jon/Cody rating paths.',
+      'Saving a cached share link for this forecast.',
+    ];
+
+    function roughPlayerCount() {
+      const text = (form.querySelector('textarea[name="roster_text"]') || {}).value || '';
+      const rows = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      let n = 0;
+      for (let i = 0; i < rows.length - 1; i++) {
+        if (/^(?:[1-8](?:\.\d+)?|--|NR)$/i.test(rows[i + 1]) && /[A-Za-z]/.test(rows[i]) && rows[i].split(/\s+/).length >= 2) {
+          n++;
+        }
+      }
+      return n;
+    }
+
+    function addLine(text) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      lines.appendChild(li);
+    }
+
+    document.body.addEventListener('htmx:beforeRequest', (event) => {
+      if (event.target !== form) return;
+      const n = roughPlayerCount();
+      panel.classList.remove('hidden');
+      lines.innerHTML = '';
+      step = 0;
+      if (count) count.textContent = n ? `${n} possible players` : '';
+      if (submit) {
+        submit.disabled = true;
+        submit.classList.add('opacity-60', 'cursor-wait');
+      }
+      addLine(`Found ${n || 'some'} possible player rows. Starting forecast.`);
+      timer = window.setInterval(() => {
+        addLine(fun[step % fun.length]);
+        step += 1;
+      }, 1400);
+    });
+
+    document.body.addEventListener('htmx:afterRequest', (event) => {
+      if (event.target !== form) return;
+      if (timer) window.clearInterval(timer);
+      timer = null;
+      addLine(event.detail && event.detail.successful ? 'Done. Forecast rendered and cached.' : 'Request finished, but something looked off.');
+      if (submit) {
+        submit.disabled = false;
+        submit.classList.remove('opacity-60', 'cursor-wait');
+      }
+    });
+  })();
+
   (function () {
     const s = window.__DUPRLY_SETTINGS || {};
     document.querySelectorAll('[data-duprly-dev]').forEach((el) => {

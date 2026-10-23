@@ -1,0 +1,190 @@
+{% if error %}
+  <div class="rounded-2xl bg-rose-500/10 ring-1 ring-rose-500/30 p-4 text-sm text-rose-200">
+    <div class="font-semibold mb-1">Could not build tournament forecast</div>
+    <div>{{ error }}</div>
+  </div>
+{% endif %}
+
+{% for warning in warnings or [] %}
+  <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-500/30 p-3 text-xs text-amber-200 mt-3">
+    {{ warning }}
+  </div>
+{% endfor %}
+
+{% if analysis %}
+  <div class="space-y-6 mt-4">
+    {% if share_url %}
+      <div class="rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-500/30 p-4 text-sm">
+        <div class="font-semibold text-emerald-200 mb-1">Shareable cached forecast</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <a class="mono text-emerald-300 underline break-all" href="{{ share_url }}" target="_blank" rel="noopener">{{ share_url }}</a>
+          <button
+            type="button"
+            class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-xs text-slate-200"
+            onclick="navigator.clipboard && navigator.clipboard.writeText('{{ share_url }}')"
+          >
+            Copy link
+          </button>
+        </div>
+        <div class="text-xs text-slate-400 mt-2">
+          This stores the resolved roster and forecast snapshot, so opening the link later does not need to re-run DUPR search.
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="grid md:grid-cols-4 gap-3">
+      <div class="rounded-xl bg-slate-900 ring-1 ring-slate-800 p-4">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500">Target player</div>
+        <div class="text-lg font-semibold">{{ analysis.target_player.name }}</div>
+        <div class="text-xs text-slate-400">{{ analysis.target_team.label }}</div>
+      </div>
+      <div class="rounded-xl bg-slate-900 ring-1 ring-slate-800 p-4">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500">Current DUPR</div>
+        <div class="text-2xl mono font-semibold">{{ "%.3f"|format(analysis.current_rating) }}</div>
+      </div>
+      <div class="rounded-xl bg-slate-900 ring-1 ring-slate-800 p-4">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500">Goal</div>
+        <div class="text-2xl mono font-semibold">{{ "%.3f"|format(analysis.target_rating) }}</div>
+        <div class="text-xs text-slate-400">Need {{ "%+.3f"|format(analysis.target_gap) }}</div>
+      </div>
+      <div class="rounded-xl bg-slate-900 ring-1 ring-slate-800 p-4">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500">Games forecast</div>
+        <div class="text-2xl mono font-semibold">{{ analysis.forecasts|length }}</div>
+        <div class="text-xs text-slate-400">Round-robin opponents</div>
+      </div>
+    </div>
+
+    <section>
+      <div class="flex items-end justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <h3 class="text-lg font-semibold">Resolved players</h3>
+          <p class="text-xs text-slate-500">
+            DUPR rating wins when available; pasted skill is used when DUPR is NR/missing.
+          </p>
+        </div>
+      </div>
+      <div class="rounded-xl ring-1 ring-slate-800 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-900 text-slate-400">
+            <tr>
+              <th class="px-3 py-2 text-left">Pasted name</th>
+              <th class="px-3 py-2 text-left">DUPR match</th>
+              <th class="px-3 py-2 text-right mono">Rating</th>
+              <th class="px-3 py-2 text-center mono">Rel</th>
+              <th class="px-3 py-2 text-left">Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {% for p in analysis.players %}
+              <tr class="hover:bg-slate-900/60">
+                <td class="px-3 py-2">{{ p.name }}</td>
+                <td class="px-3 py-2 text-slate-300">
+                  {% if p.dupr_id %}
+                    <span>{{ p.dupr_name or p.name }}</span>
+                    <span class="text-xs mono text-slate-500"> · {{ p.dupr_id }}</span>
+                  {% else %}
+                    <span class="text-slate-500">not resolved</span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 text-right mono">
+                  {% if p.rating is not none %}{{ "%.3f"|format(p.rating) }}{% else %}<span class="text-amber-300">NR</span>{% endif %}
+                </td>
+                <td class="px-3 py-2 text-center mono">
+                  {% if p.reliability is not none %}{{ "%.0f"|format(p.reliability) }}%{% else %}<span class="text-slate-500">--</span>{% endif %}
+                </td>
+                <td class="px-3 py-2 text-xs text-slate-500">{{ p.note or "" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3 class="text-lg font-semibold mb-3">Pure forecasts for your games</h3>
+      <div class="rounded-xl ring-1 ring-slate-800 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-900 text-slate-400">
+            <tr>
+              <th class="px-3 py-2 text-left">Opponent</th>
+              <th class="px-3 py-2 text-right mono">Opp avg</th>
+              <th class="px-3 py-2 text-right mono">Avg diff</th>
+              <th class="px-3 py-2 text-right mono">Win %</th>
+              <th class="px-3 py-2 text-right mono">Δ 11-0</th>
+              <th class="px-3 py-2 text-right mono">Δ 11-3</th>
+              <th class="px-3 py-2 text-right mono">Δ 11-5</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800 mono">
+            {% for f in analysis.forecasts %}
+              <tr class="hover:bg-slate-900/60">
+                <td class="px-3 py-2 font-sans">{{ f.opponent_label }}</td>
+                <td class="px-3 py-2 text-right">{{ "%.3f"|format(f.opponent_avg) }}</td>
+                <td class="px-3 py-2 text-right {% if f.avg_diff >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+                  {{ "%+.3f"|format(f.avg_diff) }}
+                </td>
+                <td class="px-3 py-2 text-right">{{ "%.1f"|format(f.win_probability * 100) }}%</td>
+                <td class="px-3 py-2 text-right text-emerald-300">{{ "%+.3f"|format(f.win_11_0) }}</td>
+                <td class="px-3 py-2 text-right text-emerald-300">{{ "%+.3f"|format(f.win_11_3) }}</td>
+                <td class="px-3 py-2 text-right text-emerald-300">{{ "%+.3f"|format(f.win_11_5) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid lg:grid-cols-2 gap-4">
+      <div class="rounded-2xl bg-slate-900/60 ring-1 ring-slate-800 p-4">
+        <h3 class="text-lg font-semibold mb-3">Same-score sweep outcomes</h3>
+        <div class="rounded-xl ring-1 ring-slate-800 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-900 text-slate-400">
+              <tr>
+                <th class="px-3 py-2 text-left">Scenario</th>
+                <th class="px-3 py-2 text-right mono">Gain</th>
+                <th class="px-3 py-2 text-right mono">Projected</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800 mono">
+              {% for p in analysis.same_score_sweeps %}
+                <tr>
+                  <td class="px-3 py-2 font-sans">{{ p.title }}</td>
+                  <td class="px-3 py-2 text-right {% if p.hits_target %}text-emerald-300{% else %}text-slate-300{% endif %}">
+                    {{ "%+.3f"|format(p.delta) }}
+                  </td>
+                  <td class="px-3 py-2 text-right {% if p.hits_target %}text-emerald-300{% else %}text-amber-300{% endif %}">
+                    {{ "%.3f"|format(p.projected_rating) }}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-slate-900/60 ring-1 ring-slate-800 p-4">
+        <h3 class="text-lg font-semibold mb-3">Target paths</h3>
+        <div class="space-y-3">
+          {% for p in analysis.target_paths if not p.title.startswith("All ") %}
+            <div class="border-b border-slate-800 pb-3 last:border-0 last:pb-0">
+              <div class="flex items-center justify-between gap-3">
+                <div class="font-semibold">{{ p.title }}</div>
+                <div class="mono text-sm {% if p.hits_target %}text-emerald-300{% else %}text-amber-300{% endif %}">
+                  {{ "%.3f"|format(p.projected_rating) }}
+                </div>
+              </div>
+              <div class="text-xs text-slate-400 mt-1">{{ p.note }}</div>
+              <div class="text-xs text-slate-500 mt-1">{{ p.scores }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <p class="text-xs text-slate-500">
+      Probability is the pure DUPR-style forecast curve P = σ(3 · team-average difference).
+      Target deltas use the repo's Phase 4 single-game-to-11 rating-impact approximation.
+    </p>
+  </div>
+{% endif %}
