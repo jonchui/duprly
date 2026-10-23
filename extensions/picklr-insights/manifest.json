@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Picklr Insights — PlayByPoint",
+  "version": "0.1.0",
+  "description": "Turns the PlayByPoint admin reports into real, member-only data: funnel + cohort/retention analysis, with CSV export.",
+  "permissions": ["storage", "downloads"],
+  "host_permissions": ["https://app.playbypoint.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Picklr Insights"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.playbypoint.com/*"],
+      "js": ["interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://app.playbypoint.com/*"],
+      "js": ["analytics.js", "panel.js", "content.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ]
+}

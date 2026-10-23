@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { width: 280px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: #14161a; color: #e6e8eb; padding: 14px; }
+    h1 { font-size: 14px; margin: 0 0 4px; }
+    p { font-size: 12px; color: #8b949e; margin: 0 0 12px; line-height: 1.4; }
+    .stat { display:flex; justify-content:space-between; font-size:12px; padding:6px 0; border-bottom:1px solid #23272e; }
+    .stat b { font-variant-numeric: tabular-nums; }
+    button { width: 100%; font-size: 13px; background:#1f6feb; color:#fff; border:none; border-radius:6px;
+             padding:9px; cursor:pointer; margin-top:10px; font-weight:600; }
+    button.sec { background:#21262d; border:1px solid #30363d; }
+    .err { color:#f85149; font-size:12px; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <h1>Picklr Insights</h1>
+  <p>Real member funnel &amp; cohort analytics for PlayByPoint.</p>
+  <div id="stats"></div>
+  <button id="open">Open analytics panel</button>
+  <button id="clear" class="sec">Clear captured data</button>
+  <div id="err" class="err"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
