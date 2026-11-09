@@ -129,7 +129,7 @@ class FakeDupr:
         if url == "/auth/v1.0/2fa/verify":
             if json == {"challengeToken": "chal-123", "code": "123456"}:
                 return FakeResp(200, {"status": "SUCCESS", "result": {"accessToken": "tok-me", "refreshToken": "r"}})
-            return FakeResp(400, {"status": "FAILURE"})
+            return FakeResp(400, {"status": "FAILURE", "message": "Verification code expired. Please request a new code."})
         if url == "/auth/v1.0/2fa/resend":
             return FakeResp(200 if json == {"challengeToken": "chal-123"} else 400, {})
         return FakeResp(404, {})
@@ -186,7 +186,8 @@ def test_dupr_login_with_emailed_code(client, fake_dupr):
     r = client.post("/api/court/dupr-login", json={"username": "code@example.com", "password": "right"})
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": False, "needs_code": True, "challenge": "chal-123", "methods": ["urn:dupr:second-factor:email"]}
-    assert client.post("/api/court/dupr-code", json={"challenge": "chal-123", "code": "000000"}).status_code == 401
+    bad = client.post("/api/court/dupr-code", json={"challenge": "chal-123", "code": "000000"})
+    assert bad.status_code == 401 and bad.json()["detail"] == "Verification code expired. Please request a new code."
     ok = client.post("/api/court/dupr-code", json={"challenge": "chal-123", "code": " 123456 "})
     assert ok.status_code == 200 and ok.json() == {"ok": True, "token": "tok-me"}
     assert client.post("/api/court/dupr-resend", json={"challenge": "chal-123"}).json() == {"ok": True}

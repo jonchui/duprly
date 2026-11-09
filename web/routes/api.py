@@ -798,8 +798,8 @@ def api_court_dupr_code(req: CourtDuprCodeRequest):
         r = dupr_live.verify_code(req.challenge, req.code)
     except dupr_live.DuprBusy:
         raise HTTPException(status_code=503, detail="DUPR is busy, try again in a minute")
-    if not r:
-        raise HTTPException(status_code=401, detail="DUPR didn't accept that code")
+    if not r or not r.get("token"):
+        raise HTTPException(status_code=401, detail=(r or {}).get("error") or "DUPR didn't accept that code")
     return {"ok": True, "token": r["token"]}
 
 

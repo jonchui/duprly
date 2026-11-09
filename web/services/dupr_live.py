@@ -115,7 +115,8 @@ def verify_code(challenge: str, code: str) -> Optional[Dict[str, Any]]:
     if rc == 200 and res.get("accessToken"):
         return {"token": res["accessToken"], "refresh_token": res.get("refreshToken")}
     _LOG.info("dupr 2fa verify rejected rc=%s", rc)
-    return None
+    # Pass DUPR's own reason through ("Verification code expired. Please request a new code.")
+    return {"error": str(j.get("message") or "DUPR didn't accept that code")[:200]}
 
 
 def resend_code(challenge: str) -> bool:
