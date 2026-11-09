@@ -5,3 +5,6 @@ python-multipart>=0.0.9
 sqlalchemy>=2.0.0
 psycopg[binary]>=3.1.0
 pydantic>=2.0.0
+# Live DUPR calls (dupr_client.py, dupr_rate_limit.py) - court sign-in 500'd without these
+requests>=2.28.0
+loguru>=0.7.0
