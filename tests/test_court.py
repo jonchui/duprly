@@ -89,3 +89,70 @@ def test_court_account_never_uses_lucas(monkeypatch):
         dupr_live._get_live_client("court")
     monkeypatch.setenv("COURT_DUPR_USERNAME", "court@example.com")
     assert dupr_live._has_live_credentials("court")
+
+
+# ---- player's own DUPR login (app keeps creds in the Keychain, sends the token) ----
+
+class FakeDupr:
+    """Stands in for dupr_client.DuprClient: no network, no token file."""
+    tokens_seen: list = []
+
+    def __init__(self, *a, **k):
+        self.access_token = "SHARED-FILE-TOKEN"  # what a real client would load from ~/.duprly_config
+        self.saved = False
+
+    def save_token(self):
+        self.saved = True
+
+    def login_user(self, username, password):
+        if (username, password) == ("me@example.com", "right"):
+            self.access_token = "tok-me"
+            return 200
+        return 403
+
+    def search_players(self, q, limit=25):
+        FakeDupr.tokens_seen.append(self.access_token)
+        if self.access_token != "tok-me":
+            return 401, {}
+        return 200, {"hits": [{"id": 4242, "fullName": "Cindy Sample", "ratings": {"doubles": "3.9"}}]}
+
+    def get_player(self, q):
+        return 404, None
+
+
+@pytest.fixture
+def fake_dupr(monkeypatch):
+    import dupr_client
+    monkeypatch.setattr(dupr_client, "DuprClient", FakeDupr)
+    monkeypatch.delenv("COURT_DUPR_USERNAME", raising=False)
+    monkeypatch.delenv("COURT_DUPR_PASSWORD", raising=False)
+    FakeDupr.tokens_seen = []
+    return FakeDupr
+
+
+def test_dupr_login_returns_token_only_for_good_creds(client, fake_dupr):
+    ok = client.post("/api/court/dupr-login", json={"username": "me@example.com", "password": "right"})
+    assert ok.status_code == 200 and ok.json() == {"ok": True, "token": "tok-me"}
+    bad = client.post("/api/court/dupr-login", json={"username": "me@example.com", "password": "wrong"})
+    assert bad.status_code == 401
+
+
+def test_search_needs_a_login(client, fake_dupr):
+    r = client.get("/api/court/dupr-search", params={"q": "cindy s"})
+    assert r.status_code == 401 and r.json()["detail"] == "dupr_login_required"
+
+
+def test_search_uses_my_token_never_the_shared_file(client, fake_dupr):
+    r = client.get("/api/court/dupr-search", params={"q": "cindy sam"}, headers={"X-Dupr-Token": "tok-me"})
+    assert r.status_code == 200, r.text
+    assert "SHARED-FILE-TOKEN" not in fake_dupr.tokens_seen and "tok-me" in fake_dupr.tokens_seen
+    expired = client.get("/api/court/dupr-search", params={"q": "zzz qqq"}, headers={"X-Dupr-Token": "old"})
+    assert expired.status_code == 401
+
+
+def test_isolated_client_does_not_load_or_save_shared_token(fake_dupr):
+    c = dupr_live.isolated_client()
+    assert c.access_token is None
+    c.access_token = "x"
+    c.save_token()
+    assert not getattr(c, "saved", False)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -763,13 +763,37 @@ def api_court_votes(req: CourtVoteRequest, session: Session = Depends(get_sessio
     return {"saved": n}
 
 
-@router.get("/court/dupr-search", response_model=List[DuprHitDTO], summary="DUPR search on the court account")
+class CourtDuprLoginRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+@router.post("/court/dupr-login", summary="Check a player's own DUPR login once; returns their DUPR token")
+def api_court_dupr_login(req: CourtDuprLoginRequest):
+    # The password is used for this one DUPR login and never stored or logged here.
+    # The app keeps the creds in the phone's Keychain and sends only the token after this.
+    token = dupr_live.login_check(req.username, req.password)
+    if not token:
+        raise HTTPException(status_code=401, detail="DUPR didn't accept that email and password")
+    return {"ok": True, "token": token}
+
+
+@router.get("/court/dupr-search", response_model=List[DuprHitDTO], summary="DUPR search for linking a roster name")
 def api_court_dupr_search(
     q: str = Query(..., min_length=2, max_length=64),
+    x_dupr_token: Optional[str] = Header(default=None, alias="X-Dupr-Token"),
     session: Session = Depends(get_session),
 ):
-    # Uses COURT_DUPR_USERNAME/PASSWORD, never Jon's personal login. Called only on a tap.
-    hits = dupr_live.search(session, query=q, limit=8, live_fallback=True, account="court")
+    # Searches as the player (their own DUPR token from /court/dupr-login), else the court
+    # account (COURT_DUPR_*), never Jon's personal login. No session at all → 401 so the app
+    # shows its DUPR sign-in.
+    client = dupr_live.isolated_client(x_dupr_token) if x_dupr_token else None
+    if client is None and not dupr_live._has_live_credentials("court"):
+        raise HTTPException(status_code=401, detail="dupr_login_required")
+    try:
+        hits = dupr_live.search(session, query=q, limit=8, live_fallback=True, account="court", client=client)
+    except dupr_live.DuprLoginRequired:
+        raise HTTPException(status_code=401, detail="dupr_login_required")
     return [DuprHitDTO(dupr_id=h.dupr_id, full_name=h.full_name, doubles=h.doubles,
                        doubles_reliability=h.doubles_reliability, singles=h.singles,
                        image_url=h.image_url, source=h.source, stale=h.stale) for h in hits]

@@ -54,6 +54,32 @@ def _creds(account: str = "default") -> Optional[tuple]:
     return user, pw
 
 
+def _shared_client():
+    from dupr_client import DuprClient  # imported lazily
+    return DuprClient()
+
+
+def isolated_client(token: Optional[str] = None):
+    """A DuprClient that never reads or writes the shared ~/.duprly_config token file,
+    so it can't pick up (or leak) another account's session. `token` = a DUPR access token."""
+    from dupr_client import DuprClient  # imported lazily
+    c = DuprClient()
+    c.save_token = lambda: None  # type: ignore[method-assign]
+    c.access_token = token
+    return c
+
+
+class DuprLoginRequired(Exception):
+    """No DUPR session to search with, or DUPR rejected the token (401/403)."""
+
+
+def login_check(username: str, password: str) -> Optional[str]:
+    """Log in to DUPR once with these creds; the access token, or None if DUPR said no."""
+    c = isolated_client()
+    rc = c.login_user(username.strip(), password)
+    return c.access_token if rc == 200 and c.access_token else None
+
+
 def _has_live_credentials(account: str = "default") -> bool:
     return _creds(account) is not None
 
@@ -66,8 +92,7 @@ def _get_live_client(account: str = "default"):
         raise RuntimeError(f"DUPR live lookup not configured — set {k[0]} and {k[1]}")
     with _CLIENT_LOCK:
         if account not in _CLIENTS:
-            from dupr_client import DuprClient  # imported lazily
-            c = DuprClient()
+            c = isolated_client() if account != "default" else _shared_client()
             rc = c.auth_user(*creds)
             if rc != 0 and rc != 200:
                 raise RuntimeError(f"DUPR auth failed ({rc})")
@@ -290,7 +315,10 @@ def search(
     limit: int = 15,
     live_fallback: bool = True,
     account: str = "default",
+    client: Any = None,
 ) -> List[PlayerSearchHit]:
+    """`client`: an already-authed DuprClient (e.g. the user's own token) used instead of `account`.
+    With `client`, a 401/403 from DUPR raises DuprLoginRequired instead of quietly returning cache."""
     """
     Hybrid search: cache first, live DUPR fallback when results look thin or
     when the query looks like a DUPR id (6-char alphanumeric short id, or a
@@ -352,9 +380,9 @@ def search(
     # live order (which was putting alphabetical cache rows above DUPR's #1).
     live_hits: List[PlayerSearchHit] = []
 
-    if live_fallback and thin_cache and _has_live_credentials(account):
+    if live_fallback and thin_cache and (client is not None or _has_live_credentials(account)):
         try:
-            client = _get_live_client(account)
+            client = client if client is not None else _get_live_client(account)
 
             # If it looks like a numeric id, try the exact-player endpoint first.
             if is_numeric_id:
@@ -372,6 +400,8 @@ def search(
             # Name search / short-id search (DUPR's /search endpoint accepts both).
             rc, result = client.search_players(q, limit=limit)
             _LOG.info("dupr live search q=%r rc=%s", q, rc)
+            if rc in (401, 403):
+                raise DuprLoginRequired(f"DUPR said {rc}")
             if rc == 200 and result:
                 raw_hits = result.get("hits") if isinstance(result, dict) else result
                 if isinstance(raw_hits, list):
@@ -384,6 +414,8 @@ def search(
                                 h = _cached_to_hit(row)
                                 h.source = "live"
                                 live_hits.append(h)
+        except DuprLoginRequired:
+            raise
         except Exception as exc:
             _LOG.warning("dupr live search failed q=%r err=%s", q, exc)
     elif live_fallback and thin_cache and not _has_live_credentials(account):
