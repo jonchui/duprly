@@ -1,0 +1,32 @@
+meta {
+  name: 20 · Forecast (local predictor model)
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{duprly_base}}/api/forecast
+  body: json
+}
+
+body:json {
+  {
+    "r1": 3.86,
+    "r2": 3.90,
+    "r3": 4.20,
+    "r4": 4.30,
+    "target": 22,
+    "rel1": 85,
+    "rel2": 80,
+    "rel3": 90,
+    "rel4": 88
+  }
+}
+
+docs {
+  Local reverse-engineered DUPR predictor. Returns rating deltas for every
+  plausible match-total score (target = winner's cumulative game points).
+  
+  For the "official" DUPR forecast use /api/dupr/forecast instead — the
+  local model has known sign quirks at extreme matchups (T-001).
+}

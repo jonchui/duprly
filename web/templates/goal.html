@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Goal forecast · duprly{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl md:text-3xl font-bold mb-2">What do I have to win?</h1>
+<p class="text-slate-400 mb-6">
+  Pick yourself, your partner, and your opponents. Tell us how much rating
+  you want to gain — we'll show every match outcome that gets you there.
+</p>
+
+<form
+  class="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-8"
+  method="post"
+  action="/goal"
+  hx-post="/goal"
+  hx-target="#goal-results"
+  hx-swap="innerHTML"
+>
+  <div class="grid md:grid-cols-2 gap-5">
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <div class="text-sm font-semibold text-slate-300">Team 1</div>
+        <label class="text-xs text-slate-500 flex items-center gap-1">
+          <input type="radio" name="me_slot" value="1" {% if not inputs or inputs.me_slot == 1 %}checked{% endif %} class="accent-emerald-400" />
+          I'm P1
+        </label>
+        <label class="text-xs text-slate-500 flex items-center gap-1">
+          <input type="radio" name="me_slot" value="2" {% if inputs and inputs.me_slot == 2 %}checked{% endif %} class="accent-emerald-400" />
+          I'm P2
+        </label>
+      </div>
+      <div class="space-y-3">
+        {% with
+          slot_num=1,
+          rating_field="r1", rel_field="rel1",
+          rating_value=(inputs.r1 if inputs else ""),
+          rel_value=(inputs.rel1 if inputs else "")
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+        {% with
+          slot_num=2,
+          rating_field="r2", rel_field="rel2",
+          rating_value=(inputs.r2 if inputs else ""),
+          rel_value=(inputs.rel2 if inputs else "")
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+      </div>
+    </div>
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <div class="text-sm font-semibold text-slate-300">Team 2</div>
+        <label class="text-xs text-slate-500 flex items-center gap-1">
+          <input type="radio" name="me_slot" value="3" {% if inputs and inputs.me_slot == 3 %}checked{% endif %} class="accent-emerald-400" />
+          I'm P3
+        </label>
+        <label class="text-xs text-slate-500 flex items-center gap-1">
+          <input type="radio" name="me_slot" value="4" {% if inputs and inputs.me_slot == 4 %}checked{% endif %} class="accent-emerald-400" />
+          I'm P4
+        </label>
+      </div>
+      <div class="space-y-3">
+        {% with
+          slot_num=3,
+          rating_field="r3", rel_field="rel3",
+          rating_value=(inputs.r3 if inputs else ""),
+          rel_value=(inputs.rel3 if inputs else "")
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+        {% with
+          slot_num=4,
+          rating_field="r4", rel_field="rel4",
+          rating_value=(inputs.r4 if inputs else ""),
+          rel_value=(inputs.rel4 if inputs else "")
+        %}{% include "partials/player_slot.html" %}{% endwith %}
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 grid md:grid-cols-3 gap-4 items-end">
+    <div>
+      <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Target delta (+ or −)</label>
+      <input
+        type="number"
+        step="0.001"
+        min="-1.0"
+        max="1.0"
+        required
+        name="target_delta"
+        value="{{ inputs.target_delta if inputs else '0.025' }}"
+        class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 mono"
+      />
+      <div class="text-xs text-slate-500 mt-1">e.g. 0.025 = gain +0.025 rating</div>
+    </div>
+    <div>
+      <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Match format</label>
+      <select name="target" class="w-full bg-slate-950 ring-1 ring-slate-700 rounded px-3 py-2">
+        <option value="22" {% if not inputs or inputs.target == 22 %}selected{% endif %}>Best-of-3 to 11 (typical)</option>
+        <option value="30" {% if inputs and inputs.target == 30 %}selected{% endif %}>Best-of-3 to 15</option>
+      </select>
+    </div>
+    <button class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-4 py-2 rounded-lg">
+      Compute goal
+    </button>
+  </div>
+</form>
+
+<div id="goal-results">
+  {% if forecast %}
+    {% include "partials/goal_table.html" %}
+  {% else %}
+    <div class="rounded-xl p-5 bg-slate-900/50 ring-1 ring-slate-800">
+      <p class="text-slate-400 text-sm">
+        Pick yourself (P1/P2/P3/P4), set a target, and we'll show every score that lands
+        on or beyond your goal. If your goal is impossible against these opponents in a
+        single match, we'll tell you the maximum feasible gain.
+      </p>
+    </div>
+  {% endif %}
+</div>
+
+{% include "partials/fill_slot_js.html" %}
+{% endblock %}

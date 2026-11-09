@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Settings · duprly{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl md:text-3xl font-bold mb-2">Settings</h1>
+<p class="text-slate-400 mb-8 text-sm">
+  All toggles here are stored in your browser only (<span class="mono">localStorage</span>).
+  Nothing is sent to the server and nothing persists across devices — they're
+  dev-experience flags, not user preferences.
+</p>
+
+<section class="space-y-8">
+  {#
+    Dev section. Every toggle here maps to a window-level flag that
+    forecast.html reads on page load:
+
+      window.__DUPRLY_SETTINGS = {
+        allow_local_forecast:  bool — show the "Forecast matrix (local)" button
+                                      and send prefer=local|official (not official_only)
+                                      so the card falls back to our fitted predictor.
+        show_debug_info:       bool — expose delta_source badges and internal labels.
+      }
+
+    The old `show_full_matrix` toggle was retired — the full matrix is now
+    always visible below the score-preview card with its own submit buttons,
+    since hiding the matrix entirely made the "Forecast matrix (DUPR)"
+    button undiscoverable.
+
+    Defaults below are the "production" UX — keep local model hidden by
+    default so the forecast page is a clean DUPR passthrough.
+  #}
+  <div class="rounded-2xl bg-slate-900 ring-1 ring-slate-800 p-6">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-[10px] uppercase tracking-wider text-amber-300 bg-amber-500/10 ring-1 ring-amber-500/30 px-2 py-0.5 rounded-full">Dev</span>
+      <h2 class="text-lg font-semibold text-slate-100">Experimental · internal-only toggles</h2>
+    </div>
+    <p class="text-slate-500 text-xs mb-6">
+      Opt in to in-progress features. These are off by default so the public
+      forecast page stays aligned with DUPR's official numbers.
+    </p>
+
+    <div class="space-y-4">
+      <label class="flex items-start gap-3 cursor-pointer group" for="dev-allow-local-forecast">
+        <input
+          id="dev-allow-local-forecast"
+          type="checkbox"
+          class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 accent-emerald-400"
+          data-setting="allow_local_forecast"
+        />
+        <span class="min-w-0 flex-1">
+          <span class="block text-slate-100 font-medium group-hover:text-emerald-300 transition">
+            Show local model forecast
+          </span>
+          <span class="block text-slate-500 text-xs mt-0.5">
+            Reveals the "Forecast matrix (local)" button on /forecast (runs the
+            fitted local predictor for the full matrix) and lets the score-preview
+            card fall back to that predictor when DUPR is unreachable. Off in
+            production so we only surface DUPR-authoritative numbers.
+          </span>
+        </span>
+      </label>
+
+      <label class="flex items-start gap-3 cursor-pointer group" for="dev-show-debug-info">
+        <input
+          id="dev-show-debug-info"
+          type="checkbox"
+          class="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 accent-emerald-400"
+          data-setting="show_debug_info"
+        />
+        <span class="min-w-0 flex-1">
+          <span class="block text-slate-100 font-medium group-hover:text-emerald-300 transition">
+            Show debug badges
+          </span>
+          <span class="block text-slate-500 text-xs mt-0.5">
+            Shows the "DUPR official" / "local margin-aware" source badges on match cards
+            so you can tell at a glance which predictor produced each delta.
+          </span>
+        </span>
+      </label>
+    </div>
+
+    <div class="mt-6 flex items-center gap-3 text-xs">
+      <button
+        id="settings-reset"
+        type="button"
+        class="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-slate-300"
+      >Reset to defaults</button>
+      <span id="settings-saved" class="text-emerald-400 opacity-0 transition-opacity">Saved.</span>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Central client-side settings store. Read by every page that cares
+  // (forecast.html, etc.) via `window.__DUPRLY_SETTINGS`.
+  //
+  // Design note: we deliberately keep this as plain localStorage keys
+  // (not cookies or a /api/settings round-trip) — nothing here ever needs
+  // to reach the server, and keeping the surface area client-side means
+  // dev toggles are free to ship / remove without schema migrations.
+  (function () {
+    const DEFAULTS = {
+      allow_local_forecast: false,
+      show_debug_info: false,
+    };
+    const KEY = 'duprly.settings.v1';
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(KEY);
+        if (!raw) return { ...DEFAULTS };
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULTS, ...parsed };
+      } catch (_e) {
+        return { ...DEFAULTS };
+      }
+    }
+
+    function save(s) {
+      localStorage.setItem(KEY, JSON.stringify(s));
+      const savedFlag = document.getElementById('settings-saved');
+      if (savedFlag) {
+        savedFlag.style.opacity = '1';
+        clearTimeout(savedFlag._t);
+        savedFlag._t = setTimeout(() => { savedFlag.style.opacity = '0'; }, 1200);
+      }
+    }
+
+    function applyToInputs(s) {
+      document.querySelectorAll('input[data-setting]').forEach((input) => {
+        const k = input.dataset.setting;
+        input.checked = Boolean(s[k]);
+      });
+    }
+
+    let state = load();
+    applyToInputs(state);
+
+    document.querySelectorAll('input[data-setting]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const k = input.dataset.setting;
+        state[k] = input.checked;
+        save(state);
+        window.__DUPRLY_SETTINGS = state;
+      });
+    });
+
+    const resetBtn = document.getElementById('settings-reset');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        state = { ...DEFAULTS };
+        save(state);
+        applyToInputs(state);
+        window.__DUPRLY_SETTINGS = state;
+      });
+    }
+
+    window.__DUPRLY_SETTINGS = state;
+  })();
+</script>
+{% endblock %}

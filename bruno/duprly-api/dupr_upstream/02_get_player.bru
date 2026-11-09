@@ -1,0 +1,24 @@
+meta {
+  name: 02 · DUPR /player/{id} (raw)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{dupr_base}}/player/{{dupr_version}}/4405492894
+}
+
+headers {
+  Authorization: Bearer {{dupr_bearer}}
+  Accept: application/json
+  Origin: https://dashboard.dupr.com
+  Referer: https://dashboard.dupr.com/
+}
+
+docs {
+  Direct player lookup by numeric id. Always works, including for the
+  caller's own profile (unlike /search — see T-002).
+  
+  Short ids (e.g. "GXWLNV") return HTTP 400 here; our backend falls back
+  to /search when the id looks short-shaped.
+}

@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "source": "Proxyman capture 2026-04-09, iOS DUPR 1486",
+    "method": "POST",
+    "url": "https://api.dupr.gg/match/v1.0/forecast",
+    "sanitized": "Authorization bearer token stripped"
+  },
+  "eventFormat": "DOUBLES",
+  "gameCount": 1,
+  "matchSource": "CLUB",
+  "matchType": "SIDE_ONLY",
+  "teams": [
+    { "player1Id": 4405492894, "player2Id": 7511597513 },
+    { "player1Id": 7270240621, "player2Id": 5651921565 }
+  ],
+  "winningScore": 15
+}

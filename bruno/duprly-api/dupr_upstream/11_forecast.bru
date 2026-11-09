@@ -1,0 +1,40 @@
+meta {
+  name: 11 · DUPR /match/forecast (raw)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{dupr_base}}/match/{{dupr_version}}/forecast
+  body: json
+}
+
+headers {
+  Authorization: Bearer {{dupr_bearer}}
+  Content-Type: application/json
+  Accept: application/json
+  Origin: https://dashboard.dupr.com
+  Referer: https://dashboard.dupr.com/
+}
+
+body:json {
+  {
+    "eventFormat": "DOUBLES",
+    "gameCount": 1,
+    "matchSource": "CLUB",
+    "matchType": "SIDE_ONLY",
+    "teams": [
+      { "player1Id": 4405492894, "player2Id": 7511597513 },
+      { "player1Id": 7270240621, "player2Id": 5651921565 }
+    ],
+    "winningScore": 11
+  }
+}
+
+docs {
+  Raw DUPR forecaster call. Response: per-team winProbabilityPercentage
+  and winningRatingImpacts[] array (length == winningScore). Our
+  /api/dupr/forecast wraps this.
+  
+  Canonical fixture: tests/fixtures/dupr_api/07-forecast-to-11.response.json
+}

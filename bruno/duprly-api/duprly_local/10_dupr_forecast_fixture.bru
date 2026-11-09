@@ -1,0 +1,36 @@
+meta {
+  name: 10 · DUPR forecast (fixture mode - offline)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{duprly_base}}/api/dupr/forecast
+  body: json
+}
+
+body:json {
+  {
+    "teams": [
+      { "player1_id": 4405492894, "player2_id": 7511597513 },
+      { "player1_id": 7270240621, "player2_id": 5651921565 }
+    ],
+    "winning_score": 11,
+    "event_format": "DOUBLES",
+    "match_source": "CLUB",
+    "match_type": "SIDE_ONLY",
+    "game_count": 1,
+    "use_fixtures": true
+  }
+}
+
+docs {
+  Returns the canonical Proxyman-captured DUPR forecaster response
+  (source:"fixture"). Use this to sanity-check our parser without hitting DUPR.
+  
+  Invariants you can assert:
+  - winning_score == rating_impacts.length for both teams
+  - team_a.win_probability_pct + team_b.win_probability_pct ≈ 100
+  - underdog rating_impacts all positive, monotonically decreasing
+  - favorite rating_impacts monotonically increasing (blowout = worst reward)
+}

@@ -1,0 +1,25 @@
+meta {
+  name: 30 · Shadow-reset simulator
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{duprly_base}}/api/reset/shadow
+  body: json
+}
+
+body:json {
+  {
+    "dupr_id": "4405492894",
+    "cutoff_date": "2024-04-16"
+  }
+}
+
+docs {
+  Replays every DUPR match for this player since cutoff_date (default is
+  DUPR's 2024-04-16 ratings reset). Returns baseline → actual → shadow (0%
+  reliability) → higher-of + per-match running totals.
+  
+  Requires DUPR_USERNAME/DUPR_PASSWORD so we can pull match history.
+}

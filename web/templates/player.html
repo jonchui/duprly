@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{{ rating.full_name }} · duprly{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl md:text-3xl font-bold mb-6">{{ rating.full_name }}</h1>
+
+<section class="grid md:grid-cols-3 gap-4 mb-10">
+  <div class="rounded-xl p-5 bg-slate-900 ring-1 ring-slate-800">
+    <div class="text-xs uppercase text-slate-400">DUPR (seed)</div>
+    <div class="mt-2 text-3xl font-bold mono">{{ "%.2f"|format(rating.seed_rating) }}</div>
+    <div class="text-xs text-slate-500 mt-1">starting rating used for JUPR replay</div>
+  </div>
+  <div class="rounded-xl p-5 bg-emerald-500/10 ring-1 ring-emerald-400/40">
+    <div class="text-xs uppercase text-emerald-300">JUPR (current)</div>
+    <div class="mt-2 text-3xl font-bold mono text-emerald-200">{{ "%.3f"|format(rating.current_rating) }}</div>
+    <div class="text-xs text-emerald-300/70 mt-1">{{ rating.games_played }} game{{ 's' if rating.games_played != 1 else '' }} · Δ {{ "%+.4f"|format(rating.last_delta or 0) }}</div>
+  </div>
+  <div class="rounded-xl p-5 bg-slate-900 ring-1 ring-slate-800">
+    <div class="text-xs uppercase text-slate-400">FUPR (crowd)</div>
+    {% if fupr.count %}
+      <div class="mt-2 text-3xl font-bold mono">{{ "%.2f"|format(fupr.median) }}</div>
+      <div class="text-xs text-slate-500 mt-1">
+        weighted mean {{ "%.2f"|format(fupr.weighted_mean) }} · {{ fupr.count }} vote{{ 's' if fupr.count != 1 else '' }}
+      </div>
+    {% else %}
+      <div class="mt-2 text-3xl font-bold mono text-slate-500">—</div>
+      <div class="text-xs text-slate-500 mt-1">Be the first to rate.</div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="grid md:grid-cols-2 gap-8">
+  <div>
+    <h2 class="text-lg font-semibold mb-3">Cast your FUPR vote</h2>
+    <p class="text-slate-400 text-sm mb-4">
+      What rating do you <em>actually</em> think this player plays at? One vote
+      per person — we hash your IP to dedupe.
+    </p>
+    <form
+      class="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 space-y-4"
+      hx-post="/api/fupr/{{ rating.player_id }}/votes"
+      hx-ext="json-enc"
+      hx-headers='{"Content-Type": "application/json"}'
+      hx-target="#fupr-ack"
+      hx-swap="innerHTML"
+    >
+      <div>
+        <label class="block text-xs uppercase text-slate-400 mb-1">Rating (2.0–7.0)</label>
+        <input name="rating" type="number" step="0.01" min="2.0" max="7.0" required class="w-full bg-slate-950 ring-1 ring-slate-700 rounded px-3 py-2 mono" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase text-slate-400 mb-1">Confidence (1–5)</label>
+        <input name="confidence" type="number" step="1" min="1" max="5" value="3" required class="w-full bg-slate-950 ring-1 ring-slate-700 rounded px-3 py-2 mono" />
+      </div>
+      <div>
+        <label class="block text-xs uppercase text-slate-400 mb-1">Comment (optional)</label>
+        <input name="comment" maxlength="280" class="w-full bg-slate-950 ring-1 ring-slate-700 rounded px-3 py-2" />
+      </div>
+      <button class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-4 py-2 rounded-lg">Submit vote</button>
+      <div id="fupr-ack" class="text-sm text-emerald-300"></div>
+    </form>
+
+    {% if fupr.histogram %}
+    <div class="mt-6">
+      <h3 class="text-sm font-semibold text-slate-300 mb-2">Histogram</h3>
+      <div class="space-y-1">
+        {% for bucket, count in fupr.histogram.items() %}
+        <div class="flex items-center gap-2 text-xs">
+          <span class="mono w-12 text-slate-500">{{ bucket }}</span>
+          <div class="flex-1 bg-slate-800 rounded h-3 overflow-hidden">
+            <div class="bg-emerald-400 h-3" style="width: {{ (count * 100 / fupr.count)|round(0, 'floor') }}%"></div>
+          </div>
+          <span class="mono w-6 text-slate-400">{{ count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <h2 class="text-lg font-semibold mb-3">Recent JUPR games</h2>
+    <div class="rounded-xl ring-1 ring-slate-800 bg-slate-900 divide-y divide-slate-800">
+      {% for g in games %}
+        <div class="p-3 text-sm">
+          <div class="mono text-slate-300">
+            [{{ g.team1_p1_id }},{{ g.team1_p2_id }}]
+            <span class="px-1 text-slate-500">vs</span>
+            [{{ g.team2_p1_id }},{{ g.team2_p2_id }}]
+            &middot; <span class="font-bold">{{ g.games1 }}–{{ g.games2 }}</span>
+          </div>
+          <div class="text-xs text-slate-500 mt-1">
+            pre: {{ "%.2f"|format(g.pre_r1) }} / {{ "%.2f"|format(g.pre_r2) }}
+            vs {{ "%.2f"|format(g.pre_r3) }} / {{ "%.2f"|format(g.pre_r4) }}
+          </div>
+        </div>
+      {% else %}
+        <div class="p-4 text-slate-500 text-sm">No games recorded yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

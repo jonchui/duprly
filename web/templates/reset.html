@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Shadow reset sim · duprly{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl md:text-3xl font-bold mb-2">Shadow-reset simulator</h1>
+<p class="text-slate-400 mb-4">
+  Replays every one of your DUPR matches since a cutoff date (default
+  <span class="mono text-slate-300">{{ default_cutoff }}</span>, matching the
+  most recent DUPR reset window) starting from <span class="mono">0%</span>
+  reliability and growing <span class="mono">+5%</span> per match. That answers
+  "what would my rating be if DUPR rebuilt it from scratch tomorrow?" — the
+  early matches swing hard, and reliability (and therefore swing size) catches
+  up match-by-match.
+</p>
+<div class="rounded-lg bg-slate-900/60 ring-1 ring-slate-800 px-4 py-3 text-xs text-slate-400 mb-6">
+  This uses a reverse-engineered model, not official DUPR code. Treat the output
+  as a directional <em>what-if</em> estimate — the shape of the curve matters more
+  than the absolute number.
+</div>
+
+<form
+  class="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-8"
+  method="post"
+  action="/reset"
+  hx-post="/reset"
+  hx-target="#reset-results"
+  hx-swap="innerHTML"
+  hx-indicator="#reset-spinner"
+>
+  <div class="grid md:grid-cols-[2fr_1fr_1fr] gap-4 items-end">
+    {# Reuse the same DUPR-search player slot component used by /forecast.
+       show_rating_fields=False hides the rating/rel inputs; dupr_id_visible=True
+       shows the id input so the user can paste a raw DUPR id or dashboard URL. #}
+    {% with
+      slot_num=1,
+      show_rating_fields=False,
+      slot_label="Your DUPR player",
+      search_placeholder="Search DUPR by name…",
+      dupr_id_name="dupr_id",
+      dupr_id_visible=True,
+      dupr_id_value=(inputs.dupr_id if inputs else "")
+    %}{% include "partials/player_slot.html" %}{% endwith %}
+
+    <div>
+      <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+        Cutoff date
+      </label>
+      <input
+        type="date"
+        name="cutoff_date"
+        class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm mono"
+        value="{{ (inputs.cutoff_date if inputs and inputs.cutoff_date else default_cutoff) }}"
+      />
+      <p class="mt-1 text-[11px] text-slate-500">Default: <span class="mono">{{ default_cutoff }}</span></p>
+    </div>
+
+    <div>
+      <label class="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+        Baseline rating (optional)
+      </label>
+      {#
+        `id="baseline-rating-input"` is the HTMX OOB swap target set by
+        `partials/reset_results.html` after a sim runs — the server replaces
+        this element so the user sees the baseline we actually used
+        (earliest-eligible-match pre-rating) instead of a blank box.
+      #}
+      <input
+        id="baseline-rating-input"
+        type="number"
+        step="0.001"
+        min="1.0"
+        max="8.5"
+        name="baseline_rating"
+        placeholder="e.g. 4.250"
+        class="w-full bg-slate-950 ring-1 ring-slate-700 focus:ring-emerald-400 rounded px-3 py-2 text-sm mono"
+        value="{{ inputs.baseline_rating if inputs and inputs.baseline_rating not in (None, '') else (('%.3f'|format(summary.baseline_rating)) if summary else '') }}"
+      />
+      <p class="mt-1 text-[11px] text-slate-500">
+        Auto-fills from the first match on/after your cutoff; override anytime.
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-5 flex items-center gap-4">
+    <button class="bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold px-4 py-2 rounded-lg text-sm">
+      Run shadow sim
+    </button>
+    <span id="reset-spinner" class="htmx-indicator text-xs text-slate-400">
+      Fetching match history from DUPR…
+    </span>
+  </div>
+</form>
+
+<div id="reset-results">
+  {% include "partials/reset_results.html" %}
+</div>
+
+{# Shared fillSlot() — gracefully skips rating/rel inputs when they're absent,
+   so the same helper works for /forecast (full slot) and /reset (dupr id only). #}
+{% include "partials/fill_slot_js.html" %}
+{% endblock %}

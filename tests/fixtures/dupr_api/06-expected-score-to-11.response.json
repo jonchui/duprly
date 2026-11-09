@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "source": "Proxyman capture 2026-04-09",
+    "status": 200,
+    "capturedAt": "2026-04-09T20:56:06Z",
+    "endpoint": "/match/v1.0/expected-score"
+  },
+  "teams": [
+    {
+      "player1Id": 4405492894,
+      "player2Id": 7511597513,
+      "score": 3.5,
+      "winProbabilityPercentage": null,
+      "winningRatingImpacts": null
+    },
+    {
+      "player1Id": 7270240621,
+      "player2Id": 5651921565,
+      "score": 11,
+      "winProbabilityPercentage": null,
+      "winningRatingImpacts": null
+    }
+  ]
+}

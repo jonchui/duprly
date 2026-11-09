@@ -1,0 +1,58 @@
+{% if hits %}
+<ul class="mt-1 divide-y divide-slate-800 rounded-lg ring-1 ring-slate-800 bg-slate-950 max-h-72 overflow-y-auto shadow-xl z-50 absolute w-full">
+  {% for h in hits %}
+    {% set meta = {
+      "age": h.age,
+      "gender": h.gender,
+      "shortAddress": h.short_address,
+      "imageUrl": h.image_url,
+      "shortDuprId": h.short_dupr_id,
+    } %}
+    <li class="px-3 py-2 hover:bg-slate-900 cursor-pointer flex items-center justify-between gap-3"
+        onclick='fillSlot({{ slot }}, {{ h.dupr_id|tojson }}, {{ h.full_name|tojson }}, {{ (h.doubles or 0)|tojson }}, {{ (h.doubles_reliability or "null") }}, {{ meta|tojson }})'>
+      <div class="flex items-center gap-3 min-w-0">
+        {% if h.image_url %}
+          <img src="{{ h.image_url }}" alt="" class="w-8 h-8 rounded-full ring-1 ring-slate-700 object-cover flex-shrink-0" loading="lazy" />
+        {% else %}
+          <div class="w-8 h-8 rounded-full bg-slate-800 ring-1 ring-slate-700 flex items-center justify-center text-[10px] text-slate-400 flex-shrink-0">
+            {{ (h.full_name or "?")[:1]|upper }}
+          </div>
+        {% endif %}
+        <div class="min-w-0">
+          <div class="text-slate-100 truncate">{{ h.full_name }}</div>
+          <div class="text-xs text-slate-500 mono truncate">
+            {% if h.age %}{{ h.age }}{% endif %}{% if h.age and h.gender %} · {% endif %}{% if h.gender %}{{ h.gender[:1]|upper }}{% endif %}{% if (h.age or h.gender) and h.short_address %} · {% endif %}{% if h.short_address %}{{ h.short_address }}{% endif %}
+            {% if not (h.age or h.gender or h.short_address) %}id={{ h.dupr_id }}{% endif %}
+            {% if h.source == "live" %}<span class="ml-1 text-emerald-400">live</span>{% elif h.stale %}<span class="ml-1 text-amber-400">stale</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="mono text-right flex-shrink-0">
+        <div class="text-emerald-300">{{ "%.2f"|format(h.doubles) if h.doubles is not none else "NR" }}</div>
+        {% if h.doubles_reliability is not none %}
+        <div class="text-[10px] text-slate-500">rel {{ "%.0f"|format(h.doubles_reliability) }}</div>
+        {% endif %}
+      </div>
+    </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="mt-1 px-3 py-2 text-sm ring-1 ring-slate-800 bg-slate-950 rounded-lg absolute w-full z-50">
+  <div class="text-slate-300">
+    No matches for {% if q %}<span class="mono">"{{ q }}"</span>{% endif %}.
+  </div>
+  <div class="text-xs text-slate-500 mt-1">
+    {% if live_available %}
+      Checked local cache and live DUPR. Note: DUPR's name search silently
+      drops profiles with a missing location, so paste your
+      <span class="mono">dashboard.dupr.com</span> URL or numeric id
+      (e.g. <span class="mono">4405492894</span>) directly here for a
+      guaranteed lookup.
+    {% else %}
+      Local cache only — set <span class="mono">DUPR_USERNAME</span> and
+      <span class="mono">DUPR_PASSWORD</span> in <span class="mono">.env</span>
+      to enable live DUPR lookup.
+    {% endif %}
+  </div>
+</div>
+{% endif %}

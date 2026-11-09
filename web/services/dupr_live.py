@@ -1,0 +1,515 @@
+"""
+Hybrid DUPR player lookup.
+
+Reads from our local Postgres/SQLite cache (DuprCachedPlayer) first for speed
+and offline friendliness. Optionally falls back to the live DUPR API using
+`dupr_client.DuprClient` when credentials are configured via environment:
+
+  DUPR_USERNAME, DUPR_PASSWORD
+
+On a successful live fetch, we upsert into the cache so subsequent searches
+don't need to hit DUPR again.
+
+This module is intentionally lazy — the `dupr_client` import happens inside
+the function body so the web app can boot on Vercel even when DUPR creds are
+absent (e.g. initial deploy).
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from web.models import DuprCachedPlayer
+
+_LOG = logging.getLogger("duprly.dupr_live")
+_CLIENT_LOCK = threading.Lock()
+_CLIENTS: Dict[str, Any] = {}
+_LOGIN_PAUSED_UNTIL: Dict[str, float] = {}
+LOGIN_PAUSE_S = 30 * 60
+
+# Which DUPR login each caller uses. "court" is the pckl.bot roster lookup; it has
+# its own account so app traffic never touches Jon's personal login.
+_ACCOUNT_ENV = {
+    "default": ("DUPR_USERNAME", "DUPR_PASSWORD"),
+    "court": ("COURT_DUPR_USERNAME", "COURT_DUPR_PASSWORD"),
+}
+# Logins an account may never use (court must not run on Jon's personal DUPR).
+_FORBIDDEN = {"court": {"lucas@jonchui.com"}}
+
+
+def _creds(account: str = "default") -> Optional[tuple]:
+    user_key, pw_key = _ACCOUNT_ENV[account]
+    user, pw = os.environ.get(user_key, "").strip(), os.environ.get(pw_key, "")
+    if not user or not pw:
+        return None
+    if user.lower() in _FORBIDDEN.get(account, set()):
+        _LOG.error("refusing DUPR login %s for account %r", user, account)
+        return None
+    return user, pw
+
+
+def _shared_client():
+    from dupr_client import DuprClient  # imported lazily
+    return DuprClient()
+
+
+def isolated_client(token: Optional[str] = None):
+    """A DuprClient that never reads or writes the shared ~/.duprly_config token file,
+    so it can't pick up (or leak) another account's session. `token` = a DUPR access token."""
+    from dupr_client import DuprClient  # imported lazily
+    c = DuprClient()
+    c.save_token = lambda: None  # type: ignore[method-assign]
+    c.access_token = token
+    return c
+
+
+class DuprLoginRequired(Exception):
+    """No DUPR session to search with, or DUPR rejected the token (401/403)."""
+
+
+class DuprBusy(Exception):
+    """duprly's DUPR rate limiter is holding requests back (protects the account from lockouts)."""
+
+
+def _json(r) -> Dict[str, Any]:
+    try:
+        j = r.json()
+        return j if isinstance(j, dict) else {}
+    except Exception:
+        return {}
+
+
+def _dupr_post(path: str, body: Dict[str, Any]):
+    c = isolated_client()
+    r = c._rl_request("POST", c.u(path), is_login=True, json=body)
+    if r.status_code == 503 and r.headers.get("X-Duprly-Limiter"):
+        raise DuprBusy(r.headers["X-Duprly-Limiter"])
+    j = _json(r)
+    return r.status_code, j, (j.get("result") if isinstance(j.get("result"), dict) else {})
+
+
+def start_login(username: str, password: str) -> Optional[Dict[str, Any]]:
+    """Step 1 of a DUPR login. {"token"} when DUPR lets you straight in, {"challenge", "methods"}
+    when it emails a 6-digit code first, None when it rejects the email/password.
+    Mirrors dashboard.dupr.com: POST /auth/v1.0/login → twoFactorRequired + challengeToken."""
+    rc, j, res = _dupr_post("/auth/v1.0/login/", {"email": username.strip(), "password": password})
+    if rc == 200 and res.get("accessToken"):
+        return {"token": res["accessToken"], "refresh_token": res.get("refreshToken")}
+    challenge = res.get("challengeToken") or j.get("challengeToken")
+    if challenge:
+        methods = [m.get("type") if isinstance(m, dict) else m for m in (res.get("methods") or j.get("methods") or [])]
+        return {"challenge": challenge, "methods": [m for m in methods if m]}
+    _LOG.info("dupr login rejected rc=%s", rc)
+    return None
+
+
+def verify_code(challenge: str, code: str) -> Optional[Dict[str, Any]]:
+    """Step 2: the emailed 6-digit code → {"token", "refresh_token"}, or None if DUPR rejects it."""
+    rc, j, res = _dupr_post("/auth/v1.0/2fa/verify", {"challengeToken": challenge, "code": code.strip()})
+    if rc == 200 and res.get("accessToken"):
+        return {"token": res["accessToken"], "refresh_token": res.get("refreshToken")}
+    _LOG.info("dupr 2fa verify rejected rc=%s", rc)
+    # Pass DUPR's own reason through ("Verification code expired. Please request a new code.")
+    return {"error": str(j.get("message") or "DUPR didn't accept that code")[:200]}
+
+
+def resend_code(challenge: str) -> bool:
+    rc, _, _ = _dupr_post("/auth/v1.0/2fa/resend", {"challengeToken": challenge})
+    return rc == 200
+
+
+def login_check(username: str, password: str) -> Optional[str]:
+    """One-step login (no code): the access token, or None."""
+    r = start_login(username, password)
+    return r.get("token") if r else None
+
+
+def _has_live_credentials(account: str = "default") -> bool:
+    return _creds(account) is not None
+
+
+def _get_live_client(account: str = "default"):
+    """Return a memoized authenticated DuprClient for `account`, or raise if not configured."""
+    creds = _creds(account)
+    if creds is None:
+        k = _ACCOUNT_ENV[account]
+        raise RuntimeError(f"DUPR live lookup not configured — set {k[0]} and {k[1]}")
+    with _CLIENT_LOCK:
+        if account not in _CLIENTS:
+            # After a failed or code-required login, don't try again for a while: each try
+            # emails the account a new DUPR code and counts toward DUPR's lockout (see the
+            # 2026-04-30 incident). Unattended logins can't answer an emailed code anyway.
+            wait = _LOGIN_PAUSED_UNTIL.get(account, 0) - time.time()
+            if wait > 0:
+                raise RuntimeError(f"DUPR login for {account!r} paused {int(wait)}s after a failed/code-required login")
+            c = isolated_client() if account != "default" else _shared_client()
+            rc = c.auth_user(*creds)
+            if rc != 0 and rc != 200:
+                _LOGIN_PAUSED_UNTIL[account] = time.time() + LOGIN_PAUSE_S
+                raise RuntimeError(f"DUPR auth failed ({rc})")
+            _CLIENTS[account] = c
+    return _CLIENTS[account]
+
+
+def _safe_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip()
+        if not s or s.upper() == "NR":
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_ratings(hit: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize the API's many rating-shape variants into a flat dict."""
+    r: Dict[str, Any] = {}
+    ratings = hit.get("ratings") if isinstance(hit.get("ratings"), dict) else hit
+
+    for d_key in ("doubles", "doublesRating"):
+        val = _safe_float(ratings.get(d_key) if ratings else hit.get(d_key))
+        if val is not None:
+            r["doubles"] = val
+            break
+    for s_key in ("singles", "singlesRating"):
+        val = _safe_float(ratings.get(s_key) if ratings else hit.get(s_key))
+        if val is not None:
+            r["singles"] = val
+            break
+
+    r["doubles_reliability"] = _safe_float(
+        (ratings.get("doublesReliabilityScore") if ratings else None)
+        or (ratings.get("doublesReliability") if ratings else None)
+        or hit.get("doublesReliabilityScore")
+    )
+    r["singles_reliability"] = _safe_float(
+        (ratings.get("singlesReliabilityScore") if ratings else None)
+        or (ratings.get("singlesReliability") if ratings else None)
+        or hit.get("singlesReliabilityScore")
+    )
+    r["doubles_verified"] = bool(
+        (ratings.get("isDoublesVerified") if ratings else None)
+        or hit.get("isDoublesVerified")
+        or (not (ratings.get("doublesProvisional") if ratings else True))
+    )
+    r["singles_verified"] = bool(
+        (ratings.get("isSinglesVerified") if ratings else None)
+        or hit.get("isSinglesVerified")
+    )
+    return r
+
+
+def _is_bad_name(name: Optional[str]) -> bool:
+    """Reject names like '', 'undefined undefined', 'null', 'None None' etc."""
+    if not name:
+        return True
+    n = name.strip().lower()
+    if not n:
+        return True
+    tokens = [t for t in n.split() if t]
+    bad_tokens = {"undefined", "null", "none", "nil", "nan"}
+    # If *every* token is a sentinel/literal-null, reject.
+    return bool(tokens) and all(t in bad_tokens for t in tokens)
+
+
+def upsert_cached_player(session: Session, hit: Dict[str, Any]) -> Optional[DuprCachedPlayer]:
+    """Create/update a DuprCachedPlayer row from a DUPR API hit dict."""
+    dupr_id = hit.get("id") or hit.get("userId")
+    if dupr_id is None:
+        return None
+    dupr_id = str(dupr_id)
+
+    ratings = _extract_ratings(hit)
+
+    def _clean_str(v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s or s.lower() in {"undefined", "null", "none", "nil", "nan"}:
+            return None
+        return s
+
+    first_name = _clean_str(hit.get("firstName"))
+    last_name = _clean_str(hit.get("lastName"))
+    full_name = _clean_str(hit.get("fullName")) or " ".join(
+        x for x in [first_name, last_name] if x
+    ).strip()
+    if _is_bad_name(full_name):
+        _LOG.info("skip cache upsert for id=%s: bad name %r", dupr_id, full_name)
+        return None
+
+    short_address = _clean_str(hit.get("shortAddress") or hit.get("shortAddress".lower()))
+
+    existing = session.get(DuprCachedPlayer, dupr_id)
+    now = datetime.now(timezone.utc)
+    if existing is None:
+        row = DuprCachedPlayer(
+            dupr_id=dupr_id,
+            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
+            short_dupr_id=_clean_str(hit.get("duprId")),
+            doubles=ratings.get("doubles"),
+            doubles_reliability=ratings.get("doubles_reliability"),
+            doubles_verified=ratings.get("doubles_verified", False),
+            singles=ratings.get("singles"),
+            singles_reliability=ratings.get("singles_reliability"),
+            singles_verified=ratings.get("singles_verified", False),
+            image_url=hit.get("imageUrl"),
+            gender=_clean_str(hit.get("gender")),
+            age=hit.get("age"),
+            short_address=short_address,
+            last_synced_at=now,
+        )
+        session.add(row)
+        session.flush()
+        return row
+
+    existing.full_name = full_name
+    existing.first_name = first_name or existing.first_name
+    existing.last_name = last_name or existing.last_name
+    existing.short_dupr_id = _clean_str(hit.get("duprId")) or existing.short_dupr_id
+    for field in (
+        "doubles", "doubles_reliability", "doubles_verified",
+        "singles", "singles_reliability", "singles_verified",
+    ):
+        v = ratings.get(field)
+        if v is not None:
+            setattr(existing, field, v)
+    if hit.get("imageUrl"):
+        existing.image_url = hit["imageUrl"]
+    if _clean_str(hit.get("gender")):
+        existing.gender = _clean_str(hit.get("gender"))
+    if hit.get("age") is not None:
+        existing.age = hit["age"]
+    if short_address:
+        existing.short_address = short_address
+    existing.last_synced_at = now
+    session.flush()
+    return existing
+
+
+@dataclass
+class PlayerSearchHit:
+    dupr_id: str
+    full_name: str
+    doubles: Optional[float]
+    doubles_reliability: Optional[float]
+    singles: Optional[float]
+    image_url: Optional[str]
+    source: str  # "cache" or "live"
+    stale: bool  # true if the cache entry is > CACHE_TTL_DAYS old
+    # Richer metadata used by the DUPR-style match card (age · M · location).
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    short_address: Optional[str] = None
+    short_dupr_id: Optional[str] = None
+
+
+CACHE_TTL_DAYS = 30
+
+
+def _cached_to_hit(row: DuprCachedPlayer) -> PlayerSearchHit:
+    age_days = (datetime.now(timezone.utc) - row.last_synced_at.replace(tzinfo=timezone.utc)).days
+    return PlayerSearchHit(
+        dupr_id=row.dupr_id,
+        full_name=row.full_name,
+        doubles=row.doubles,
+        doubles_reliability=row.doubles_reliability,
+        singles=row.singles,
+        image_url=row.image_url,
+        source="cache",
+        stale=age_days > CACHE_TTL_DAYS,
+        age=row.age,
+        gender=row.gender,
+        short_address=row.short_address,
+        short_dupr_id=row.short_dupr_id,
+    )
+
+
+import re as _re
+
+_SHORT_ID_RE = _re.compile(r"^[A-Z0-9]{6}$")
+_NUMERIC_ID_RE = _re.compile(r"^\d{6,}$")
+# Matches `https://dashboard.dupr.com/dashboard/player/4405492894` and friends:
+# allow any dupr.com host, any path, so long as /player/<digits> appears.
+_DUPR_URL_ID_RE = _re.compile(
+    r"(?:https?://)?(?:\w+\.)*dupr\.com/[^\s?#]*?/player/(\d+)",
+    _re.IGNORECASE,
+)
+
+
+def _looks_like_short_id(q: str) -> bool:
+    return bool(_SHORT_ID_RE.match(q.upper()))
+
+
+def _looks_like_numeric_id(q: str) -> bool:
+    return bool(_NUMERIC_ID_RE.match(q))
+
+
+def _extract_numeric_id_from_url(q: str) -> Optional[str]:
+    """Return the numeric DUPR id if `q` is a dashboard.dupr.com player URL."""
+    m = _DUPR_URL_ID_RE.search(q)
+    return m.group(1) if m else None
+
+
+def search(
+    session: Session,
+    query: str,
+    limit: int = 15,
+    live_fallback: bool = True,
+    account: str = "default",
+    client: Any = None,
+) -> List[PlayerSearchHit]:
+    """`client`: an already-authed DuprClient (e.g. the user's own token) used instead of `account`.
+    With `client`, a 401/403 from DUPR raises DuprLoginRequired instead of quietly returning cache."""
+    """
+    Hybrid search: cache first, live DUPR fallback when results look thin or
+    when the query looks like a DUPR id (6-char alphanumeric short id, or a
+    long numeric internal id).
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    # If the user pastes a dashboard URL like
+    #   https://dashboard.dupr.com/dashboard/player/4405492894
+    # normalize to the numeric id. This is the *only* reliable way to hit
+    # profiles with shortAddress=null — DUPR's /search silently drops them.
+    url_id = _extract_numeric_id_from_url(q)
+    if url_id:
+        q = url_id
+
+    is_short_id = _looks_like_short_id(q)
+    is_numeric_id = _looks_like_numeric_id(q)
+
+    # Cache search: ILIKE on name + exact match on short DUPR id + numeric id.
+    cache_rows = session.execute(
+        select(DuprCachedPlayer)
+        .where(
+            or_(
+                DuprCachedPlayer.full_name.ilike(f"%{q}%"),
+                DuprCachedPlayer.short_dupr_id.ilike(q),
+                DuprCachedPlayer.dupr_id == q,
+            )
+        )
+        .order_by(DuprCachedPlayer.full_name)
+        .limit(limit)
+    ).scalars().all()
+    hits: List[PlayerSearchHit] = [_cached_to_hit(r) for r in cache_rows]
+
+    # Force live fallback whenever the cache didn't fully fill the requested
+    # page OR the query smells like an exact-lookup (short/numeric DUPR id).
+    #
+    # Evolution of this guard:
+    #   v1: `(" " in q and len(hits) < 5)` — only multi-word queries went live.
+    #       Broke single-word searches like "bryan".
+    #   v2: `len(hits) < min(5, limit)` — fixed "bryan", but broke "Cody F".
+    #       When the cache already has 5+ matches for a common prefix, we
+    #       would silently show a stale cache snapshot instead of DUPR's
+    #       actual ranked top-N. The user sees Cody Ferguson/Fischer/Flake/
+    #       Frame/Frazer from our cache, while dashboard.dupr.com ranks a
+    #       totally different Cody F... first.
+    #   v3 (current): `len(hits) < limit` — call live any time the cache
+    #       didn't completely fill the requested page. The HTMX autocomplete
+    #       on the client is already `delay:300ms` debounced, so we're not
+    #       going to DoS DUPR from keystrokes — and fresh results are
+    #       basically always better than a partial stale cache slice.
+    id_shape = is_short_id or is_numeric_id
+    thin_cache = len(hits) < limit or id_shape
+
+    # When live fires we want DUPR's relevance ranking to drive the dropdown
+    # order, then append any cache-only strays. Build a separate `live_hits`
+    # list and merge at the end, rather than `hits.append`-ing in cache-then-
+    # live order (which was putting alphabetical cache rows above DUPR's #1).
+    live_hits: List[PlayerSearchHit] = []
+
+    if live_fallback and thin_cache and (client is not None or _has_live_credentials(account)):
+        try:
+            client = client if client is not None else _get_live_client(account)
+
+            # If it looks like a numeric id, try the exact-player endpoint first.
+            if is_numeric_id:
+                try:
+                    rc, player = client.get_player(q)
+                    if rc == 200 and isinstance(player, dict):
+                        row = upsert_cached_player(session, player)
+                        if row is not None:
+                            h = _cached_to_hit(row)
+                            h.source = "live"
+                            live_hits.append(h)
+                except Exception as exc:
+                    _LOG.warning("dupr get_player failed id=%r err=%s", q, exc)
+
+            # Name search / short-id search (DUPR's /search endpoint accepts both).
+            rc, result = client.search_players(q, limit=limit)
+            _LOG.info("dupr live search q=%r rc=%s", q, rc)
+            if rc in (401, 403):
+                raise DuprLoginRequired(f"DUPR said {rc}")
+            if rc == 200 and result:
+                raw_hits = result.get("hits") if isinstance(result, dict) else result
+                if isinstance(raw_hits, list):
+                    for raw in raw_hits:
+                        if not isinstance(raw, dict):
+                            continue
+                        row = upsert_cached_player(session, raw)
+                        if row is not None:
+                            if not any(h.dupr_id == row.dupr_id for h in live_hits):
+                                h = _cached_to_hit(row)
+                                h.source = "live"
+                                live_hits.append(h)
+        except DuprLoginRequired:
+            raise
+        except Exception as exc:
+            _LOG.warning("dupr live search failed q=%r err=%s", q, exc)
+    elif live_fallback and thin_cache and not _has_live_credentials(account):
+        _LOG.debug("dupr live search skipped (no DUPR_USERNAME/PASSWORD set)")
+
+    # Merge: live hits first (in DUPR's relevance order), then any cache-only
+    # strays the live response didn't return. If live didn't fire / returned
+    # nothing, we fall back to the alphabetical cache order unchanged.
+    if live_hits:
+        live_ids = {h.dupr_id for h in live_hits}
+        cache_only = [h for h in hits if h.dupr_id not in live_ids]
+        merged = live_hits + cache_only
+    else:
+        merged = hits
+
+    return merged[:limit]
+
+
+def refresh(session: Session, dupr_id: str) -> Optional[PlayerSearchHit]:
+    """Force-refresh a single player from live DUPR and upsert into cache."""
+    if not _has_live_credentials():
+        raise RuntimeError("DUPR live lookup not configured")
+    client = _get_live_client()
+    rc, player = client.get_player(str(dupr_id))
+    if rc != 200 or not player:
+        return None
+    row = upsert_cached_player(session, player)
+    if row is None:
+        return None
+    return _cached_to_hit(row)
+
+
+def get_by_id(session: Session, dupr_id: str) -> Optional[PlayerSearchHit]:
+    row = session.get(DuprCachedPlayer, str(dupr_id))
+    if row is None:
+        return None
+    return _cached_to_hit(row)

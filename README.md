@@ -26,6 +26,44 @@ This is my yet another attempt to master SQLAlchemy ORM.
 After normalizing the data, I am using datasette to analyze the data. It is a great tool.
 Check it out!
 
+### 3. **duprly web** (FastAPI + HTMX)
+A small local web app that wraps the downloader/simulator in a browser UI with
+a live DUPR player autocomplete. Run it with:
+
+```bash
+python3.11 -m venv .venv-web
+.venv-web/bin/pip install -r api/requirements.txt 'uvicorn[standard]'
+.venv-web/bin/uvicorn web.main:app --reload --port 8000
+```
+
+Then open [http://localhost:8000](http://localhost:8000). Pages:
+
+- **`/forecast`** — pick 4 players via DUPR search and preview the rating
+  delta of any 11-point score. Falls back to a reverse-engineered model if
+  DUPR's `/match/forecast` endpoint is unreachable, otherwise shows the
+  official per-player DUPR deltas.
+- **`/goal`** — reverse-forecast: "what score would push my rating up by
+  `+0.03`?" against a fixed lineup.
+- **`/reset`** — **shadow-reset simulator**. Pick your DUPR player (by name,
+  short id, numeric id, or `dashboard.dupr.com/.../player/<id>` URL) and
+  a cutoff date (default `2024-04-16`, the start of the last public ratings
+  overhaul). The app replays every one of your DUPR matches since the cutoff
+  with your reliability forced to 0%, which gives the *maximum* per-match
+  impact the model can assign — a directional lower bound for "what would
+  my rating be if DUPR rebuilt it from scratch tomorrow?". Same reverse-
+  engineered model caveat as the CLI script — treat it as a what-if, not a
+  production DUPR number.
+- **`/jupr`** — a local "what-if match log" you can edit independently of
+  your official DUPR history.
+- **`/api/docs`** — OpenAPI/Swagger for the underlying JSON API.
+
+The player-picker autocomplete hits a hybrid cache-first / live-fallback
+search (`/dupr/search`) backed by a `DuprCachedPlayer` SQLite table. It
+preserves DUPR's own relevance ranking when live results are present, and
+supports single-letter last-name queries like `Cody F`. Set `DUPR_USERNAME`
+and `DUPR_PASSWORD` in `.env` to enable live fallback; without credentials
+you get cache-only results.
+
 ## Setup Instructions
 
 ### For Google Apps Script (DUPR Club Manager)
@@ -79,7 +117,19 @@ python3 duprly.py --help
 - `python3 duprly.py update-ratings` - Update player ratings
 - `python3 duprly.py build-match-detail` - Flatten match data for faster queries
 
-### Shadow Reset Simulator (Last N Matches)
+### Shadow Reset Simulator (Last N Matches, CLI)
+
+There are two flavors of this simulator in the repo:
+
+- **CLI (rolling N-match windows)** — this section, `scripts/shadow_reset.py`.
+  Replays your last 8/16/24 matches on demand, useful for tracking form.
+- **Web UI (cutoff-date replay)** — [`/reset`](#3-duprly-web-fastapi--htmx)
+  in the web app. Replays every match since a cutoff date (default
+  `2024-04-16`) with reliability pinned to 0%. Good for the "if DUPR
+  rebuilt my rating from scratch tomorrow" lower-bound.
+
+Both share the same reverse-engineered delta model. Neither is DUPR
+production code.
 
 Use the Python simulator to replay your recent form over rolling match windows.
 

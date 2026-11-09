@@ -1,0 +1,26 @@
+meta {
+  name: 02 · DUPR search (by name, hybrid cache+live)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{duprly_base}}/api/dupr/search?q=Natalie Nguyen&limit=10&live=true
+}
+
+query {
+  q: Natalie Nguyen
+  limit: 10
+  live: true
+}
+
+docs {
+  Hybrid cache+live DUPR search. Returns JSON PlayerSearchHit[] with:
+  - dupr_id, full_name, doubles, doubles_reliability, singles, image_url
+  - source: "cache" | "live"  (was this row served from cache or upstream DUPR)
+  - stale: true if cache is older than the TTL
+  
+  If this returns empty but `dupr_upstream/01_search_players` returns hits,
+  the issue is our cache hydration. If both return empty, the query didn't
+  match anything in DUPR (check for typos — "Ngyuen" vs "Nguyen" trips people up).
+}

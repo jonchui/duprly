@@ -1,0 +1,302 @@
+{#
+  DUPR-style match card for a single score forecast.
+
+  Mirrors the visual design of DUPR's in-app Forecaster:
+  - Top: Win/Loss pill + event/venue label + hero delta
+  - Mid: horizontal score (Team 1 on the LEFT, Team 2 on the RIGHT) in the
+    center column, with team headers showing win % and predicted score
+    (when we called DUPR's official forecaster).
+  - Players: 2×2 grid (Team 1 players left, Team 2 right). Every player has
+    an avatar (real image OR placeholder) and their name/avatar is a link
+    to `/dupr/player/<dupr_id>`.
+  - Footer: Log-to-JUPR CTA + short-id.
+
+  Required template vars:
+    row            — web.services.forecast.ForecastRow (games1, games2, winner, impacts, …)
+    players        — list[dict] of 4 player meta dicts (index 0..3 == slot 1..4).
+                     Each: {name, age, gender, short_address, image_url, dupr_id}.
+    is_preview     — bool; if True we tag the card as "Forecast" instead of "Win/Loss"
+                     and do NOT show a fake match id.
+    event_label    — optional, e.g. "DUPRLY forecast"
+    venue_label    — optional free text shown under event_label.
+    delta_source   — optional label like "DUPR official" / "local margin-aware".
+                     Only surfaced when Settings → Dev "Show debug badges" is on.
+    team1_meta     — optional dict with {win_probability_pct, predicted_score}
+                     pulled from DUPR's `/match/v1.0/forecast`. Null when we
+                     couldn't or didn't call the official API.
+    team2_meta     — same shape for Team 2.
+#}
+{% macro player_card(idx, meta, impact) %}
+  {% set name = meta.get("name") if meta else None %}
+  {% set age = meta.get("age") if meta else None %}
+  {% set gender = meta.get("gender") if meta else None %}
+  {% set short_address = meta.get("short_address") if meta else None %}
+  {% set image_url = meta.get("image_url") if meta else None %}
+  {% set dupr_id = meta.get("dupr_id") if meta else None %}
+  {% set raw_delta = impact.delta | round(3) %}
+  {% set up = raw_delta > 0 %}
+  {% set down = raw_delta < 0 %}
+  {% set delta_abs = (raw_delta if up else -raw_delta) if (up or down) else 0 %}
+  {# DUPR shows deltas as a fraction without leading zero, e.g. ".012" #}
+  {% set delta_str = "%.3f" | format(delta_abs) %}
+  {% if delta_abs < 1 %}
+    {% set delta_str = delta_str.lstrip("0") %}
+  {% endif %}
+  {% set color = "emerald" if up else ("rose" if down else "slate") %}
+  {% set meta_bits = [] %}
+  {% if age %}{% set _ = meta_bits.append(age|string) %}{% endif %}
+  {% if gender %}{% set _ = meta_bits.append(gender[:1]|upper) %}{% endif %}
+  {% if short_address %}{% set _ = meta_bits.append(short_address) %}{% endif %}
+  {# Profile link. We use `/dupr/player/<id>` to mirror DUPR's own URL
+     shape (`dashboard.dupr.com/dashboard/player/<id>`) — only when we
+     actually know the id, otherwise the avatar/name are inert. #}
+  {% set has_profile_link = dupr_id and (dupr_id|string).strip() %}
+  {% set profile_href = "/dupr/player/" ~ dupr_id if has_profile_link else None %}
+  <div class="rounded-2xl bg-slate-800/80 ring-1 ring-slate-700/60 p-4">
+    <div class="flex items-center gap-3 mb-3">
+      {% if has_profile_link %}<a href="{{ profile_href }}" class="shrink-0 block" title="View DUPR profile">{% endif %}
+        {% if image_url %}
+          <img src="{{ image_url }}" alt="" class="w-10 h-10 rounded-full object-cover ring-1 ring-slate-700 shrink-0" loading="lazy" />
+        {% else %}
+          <div class="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-base font-semibold shrink-0">
+            {% if name %}{{ name[:1]|upper }}{% else %}
+              <svg viewBox="0 0 24 24" class="w-5 h-5 text-slate-400" fill="currentColor" aria-hidden="true">
+                <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.34 0-10 1.67-10 5v3h20v-3c0-3.33-6.66-5-10-5z"/>
+              </svg>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% if has_profile_link %}</a>{% endif %}
+      {# Use min-w-0 + break-words so long names wrap to a 2nd line instead of
+         getting chopped with ellipsis. The avatar is `shrink-0`, so the text
+         column gets whatever width is left and can flow vertically. #}
+      <div class="min-w-0 flex-1">
+        <div class="text-slate-100 text-base font-semibold leading-tight break-words">
+          {% if has_profile_link %}
+            <a href="{{ profile_href }}" class="hover:text-emerald-300 hover:underline">{{ name if name else "Player " ~ idx }}</a>
+          {% else %}
+            {{ name if name else "Player " ~ idx }}
+          {% endif %}
+        </div>
+        {% if meta_bits %}
+          <div class="mt-0.5 text-slate-500 text-xs leading-snug break-words">
+            {{ meta_bits|join(" · ") }}
+          </div>
+        {% elif name %}
+          <div class="mt-0.5 text-slate-500 text-xs">
+            Slot {{ idx }}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
+      <div class="rounded-lg bg-slate-950/70 ring-1 ring-slate-700/50 px-3 py-2 text-center mono text-slate-200">
+        {{ "%.3f" | format(impact.pre_rating) }}
+      </div>
+      <div class="mono text-{{ color }}-400 text-xs whitespace-nowrap flex items-center gap-1">
+        {% if up %}
+          <span>+{{ delta_str }}</span>
+          <svg viewBox="0 0 8 12" class="w-2 h-2.5" fill="currentColor" aria-hidden="true"><path d="M0 0 L8 6 L0 12 Z"/></svg>
+        {% elif down %}
+          <span>−{{ delta_str }}</span>
+          <svg viewBox="0 0 8 12" class="w-2 h-2.5" fill="currentColor" aria-hidden="true"><path d="M0 0 L8 6 L0 12 Z"/></svg>
+        {% else %}
+          <span>·</span>
+        {% endif %}
+      </div>
+      <div class="rounded-lg {% if up %}bg-emerald-500/15 ring-1 ring-emerald-500/40 text-emerald-200{% elif down %}bg-rose-500/15 ring-1 ring-rose-500/40 text-rose-200{% else %}bg-slate-950/70 ring-1 ring-slate-700/50 text-slate-200{% endif %} px-3 py-2 text-center mono">
+        {{ "%.3f" | format(impact.post_rating) }}
+      </div>
+    </div>
+  </div>
+{% endmacro %}
+
+{% macro team_header(label, team_num, meta, is_winner) %}
+  {% set win_pct = meta.win_probability_pct if meta else None %}
+  {% set pred_score = meta.predicted_score if meta else None %}
+  <div class="flex items-center justify-between gap-2 mb-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="text-[10px] uppercase tracking-wider text-slate-400">
+        {{ label }}
+      </span>
+      {% if is_winner %}
+        <span class="text-[10px] uppercase tracking-wider text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 px-2 py-0.5 rounded-full">Winner</span>
+      {% endif %}
+    </div>
+    {% if win_pct is not none %}
+      <div class="flex items-baseline gap-2 text-xs mono text-slate-400 whitespace-nowrap">
+        <span class="text-emerald-300 font-semibold">{{ "%.0f"|format(win_pct) }}%</span>
+        <span class="text-slate-500">win</span>
+        {% if pred_score is not none %}
+          <span class="text-slate-600">·</span>
+          <span>exp {{ "%.1f"|format(pred_score) }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% set team1_delta = row.d1 + row.d2 %}
+{% set t1_win = row.winner == 1 %}
+{% set t2_win = row.winner == 2 %}
+{# Card's "hero" delta = perspective of Team 1. Mirrors DUPR's "your team's" feel. #}
+{% set hero_delta = team1_delta / 2 %}
+{% set hero_up = hero_delta > 0 %}
+{% set hero_down = hero_delta < 0 %}
+{% set hero_abs = (hero_delta if hero_up else -hero_delta) if (hero_up or hero_down) else 0 %}
+{% set hero_str = ("%.3f" | format(hero_abs)).lstrip("0") if hero_abs < 1 else ("%.3f" | format(hero_abs)) %}
+
+<div class="rounded-3xl bg-slate-900 ring-1 ring-slate-700/60 shadow-xl px-6 py-5">
+  <div class="flex items-start justify-between mb-4 gap-3 flex-wrap">
+    <div class="min-w-0">
+      {% if is_preview %}
+        <span class="text-xs font-semibold text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 px-3 py-1 rounded-full">
+          Forecast
+        </span>
+      {% elif t1_win %}
+        <span class="text-xs font-semibold text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 px-3 py-1 rounded-full">
+          Win
+        </span>
+      {% else %}
+        <span class="text-xs font-semibold text-rose-300 bg-rose-500/10 ring-1 ring-rose-500/30 px-3 py-1 rounded-full">
+          Loss
+        </span>
+      {% endif %}
+      {% if event_label %}
+        <div class="mt-2 text-slate-100 text-lg font-semibold">{{ event_label }}</div>
+      {% endif %}
+      {% if venue_label %}
+        <div class="text-slate-500 text-sm">{{ venue_label }}</div>
+      {% endif %}
+    </div>
+    <div class="flex flex-col items-end gap-1">
+      <div class="mono text-right {% if hero_up %}text-emerald-400{% elif hero_down %}text-rose-400{% else %}text-slate-400{% endif %} text-base flex items-center gap-1">
+        {% if hero_up %}
+          <span>+{{ hero_str }}</span>
+          <svg viewBox="0 0 12 8" class="w-2.5 h-2" fill="currentColor"><path d="M6 0 L12 8 L0 8 Z"/></svg>
+        {% elif hero_down %}
+          <span>−{{ hero_str }}</span>
+          <svg viewBox="0 0 12 8" class="w-2.5 h-2" fill="currentColor"><path d="M0 0 L12 0 L6 8 Z"/></svg>
+        {% else %}
+          <span class="text-slate-500">·</span>
+        {% endif %}
+      </div>
+      {#
+        Delta source badge. Hidden by default — revealed when the user
+        flips Settings → Dev "Show debug badges". Production viewers never
+        see "local margin-aware" bleed through.
+      #}
+      {% if delta_source %}
+        <div
+          data-duprly-debug="1"
+          class="text-[10px] uppercase tracking-wider
+            {% if delta_source == 'DUPR official' %}text-emerald-300 bg-emerald-500/10 ring-emerald-500/30
+            {% else %}text-slate-400 bg-slate-800 ring-slate-700{% endif %}
+            ring-1 px-2 py-0.5 rounded-full mono hidden"
+          title="{{ delta_source }}"
+        >{{ delta_source }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Horizontal score banner. Left = Team 1, right = Team 2, winner highlighted.
+     This replaces the old vertically-stacked score column so "left team / right
+     team" matches how players read the scoreboard in-hand. #}
+  <div class="rounded-2xl bg-slate-950/60 ring-1 ring-slate-800 px-4 py-3 mb-4">
+    <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div class="flex items-center justify-end gap-3">
+        <span class="text-[10px] uppercase tracking-wider text-slate-400">Team 1</span>
+        <span class="mono text-4xl {% if t1_win %}text-slate-50 font-bold{% else %}text-slate-500{% endif %}">
+          {{ row.games1 }}
+        </span>
+        {% if t1_win %}
+          <svg viewBox="0 0 12 8" class="w-3 h-2 text-sky-400" fill="currentColor" aria-hidden="true"><path d="M12 0 L0 4 L12 8 Z"/></svg>
+        {% endif %}
+      </div>
+      <div class="text-slate-600 mono text-2xl select-none">–</div>
+      <div class="flex items-center justify-start gap-3">
+        {% if t2_win %}
+          <svg viewBox="0 0 12 8" class="w-3 h-2 text-sky-400" fill="currentColor" aria-hidden="true"><path d="M0 0 L12 4 L0 8 Z"/></svg>
+        {% endif %}
+        <span class="mono text-4xl {% if t2_win %}text-slate-50 font-bold{% else %}text-slate-500{% endif %}">
+          {{ row.games2 }}
+        </span>
+        <span class="text-[10px] uppercase tracking-wider text-slate-400">Team 2</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+    {# Team 1 column #}
+    <div>
+      {{ team_header("Team 1", 1, team1_meta, t1_win) }}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {{ player_card(1, players[0] if players and players|length > 0 else None, row.impacts[0]) }}
+        {{ player_card(2, players[1] if players and players|length > 1 else None, row.impacts[1]) }}
+      </div>
+    </div>
+
+    {# Team 2 column #}
+    <div>
+      {{ team_header("Team 2", 2, team2_meta, t2_win) }}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {{ player_card(3, players[2] if players and players|length > 2 else None, row.impacts[2]) }}
+        {{ player_card(4, players[3] if players and players|length > 3 else None, row.impacts[3]) }}
+      </div>
+    </div>
+  </div>
+
+  {# Log-to-JUPR CTA. Requires all 4 DUPR ids to be set on the players meta
+     (the forecast page only populates them when the user picked each slot
+     from the DUPR search dropdown). #}
+  {% set log_ready = players and players|length == 4 and players[0].get("dupr_id") and players[1].get("dupr_id") and players[2].get("dupr_id") and players[3].get("dupr_id") %}
+
+  <div class="mt-5 flex items-center justify-between gap-3 text-xs text-slate-500 flex-wrap">
+    <div class="flex items-center gap-3 flex-wrap">
+      {% if is_preview and log_ready %}
+        <form hx-post="/forecast/log" hx-target="#score-preview-card" hx-swap="innerHTML" class="inline-flex items-center gap-2">
+          {% for i in range(4) %}
+            <input type="hidden" name="duprid{{ i + 1 }}" value="{{ players[i].dupr_id }}" />
+            <input type="hidden" name="name{{ i + 1 }}"  value="{{ players[i].name or '' }}" />
+            <input type="hidden" name="r{{ i + 1 }}"     value="{{ '%.3f' | format(row.impacts[i].pre_rating) }}" />
+          {% endfor %}
+          <input type="hidden" name="games1" value="{{ row.games1 }}" />
+          <input type="hidden" name="games2" value="{{ row.games2 }}" />
+          <input type="hidden" name="notes"  value="DUPRLY forecast · {{ event_label or 'score preview' }}" />
+          <button type="submit" class="px-3 py-1.5 rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/40 text-emerald-200 hover:bg-emerald-500/25 font-semibold text-xs transition">
+            Log to JUPR
+          </button>
+          <span class="htmx-indicator text-slate-500">saving…</span>
+        </form>
+      {% elif is_preview %}
+        <span class="text-slate-600 text-[11px]">
+          Pick all 4 players from DUPR search to enable "Log to JUPR"
+        </span>
+      {% else %}
+        <span class="text-slate-500">
+          Expected team-1 match-total:
+          <span class="mono text-slate-400">{{ "%.2f" | format(row.expected_games_team1) }}</span>
+        </span>
+      {% endif %}
+    </div>
+    <div class="mono">
+      {% if is_preview %}
+        ID: preview-{{ row.games1 }}-{{ row.games2 }}
+      {% else %}
+        ID: forecast-{{ row.games1 }}-{{ row.games2 }}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+  // Reveal delta-source badges only when Settings → Dev "Show debug badges" is on.
+  // We lazy-toggle inside the card partial (not at base.html) because the card
+  // is re-rendered by HTMX on every score change, and new DOM nodes arrive
+  // without the setting applied.
+  (function () {
+    const s = (window.__DUPRLY_SETTINGS && window.__DUPRLY_SETTINGS.show_debug_info) ? true : false;
+    if (!s) return;
+    document.querySelectorAll('[data-duprly-debug="1"]').forEach((el) => el.classList.remove('hidden'));
+  })();
+</script>

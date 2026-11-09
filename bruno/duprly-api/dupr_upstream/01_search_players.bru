@@ -1,0 +1,47 @@
+meta {
+  name: 01 · DUPR /player/search (raw)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{dupr_base}}/player/{{dupr_version}}/search
+  body: json
+}
+
+headers {
+  Authorization: Bearer {{dupr_bearer}}
+  Content-Type: application/json
+  Accept: application/json
+  Origin: https://dashboard.dupr.com
+  Referer: https://dashboard.dupr.com/
+}
+
+body:json {
+  {
+    "limit": 10,
+    "offset": 0,
+    "query": "natalie greene",
+    "exclude": [],
+    "includeUnclaimedPlayers": true,
+    "filter": {
+      "lat": 39.977763,
+      "lng": -105.1319296,
+      "rating": { "minRating": null, "maxRating": null },
+      "locationText": ""
+    }
+  }
+}
+
+docs {
+  Exact payload dashboard.dupr.com sends. Useful for diffing against our
+  client's search_players() output when results look weird.
+  
+  Common gotchas:
+  - typos: "ngyuen" vs "nguyen", "cuhi" vs "chui" — DUPR does NOT
+    fuzzy-match. Missing 1 character = 0 hits.
+  - short DUPR ids (e.g. "GXWLNV") return 0 from this endpoint. Use
+    GET /player/{numeric_id} instead (see 02_get_player.bru).
+  - the caller's own profile is hidden from this endpoint (see T-002 in
+    docs/TICKETS.md). Use 02_get_player.bru to retrieve your own profile.
+}
