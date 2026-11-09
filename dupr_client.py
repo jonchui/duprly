@@ -98,7 +98,13 @@ class DuprClient(object):
         self.load_token()
 
     def load_token(self):
-        """Load access token stored locally if available"""
+        """Load the DUPR session: DUPR_SESSION_TOKEN env var first (servers,
+        e.g. Vercel, where no one can type a 2FA code), else ~/.duprly_config."""
+        env_token = os.getenv("DUPR_SESSION_TOKEN", "").strip()
+        if env_token:
+            self.access_token = env_token
+            self.auth_mode = "cookie"
+            return
         try:
             with open(self.env_path, "r") as f:
                 data = json.load(f)
@@ -120,7 +126,7 @@ class DuprClient(object):
                     data["refresh_token"] = self.refresh_token
                 json.dump(data, f)
             os.chmod(self.env_path, 0o600)
-        except FileNotFoundError:
+        except OSError:  # read-only FS on serverless hosts
             logger.debug(f"Cannot save token to {self.env_path}")
 
     def u(self, parts):
