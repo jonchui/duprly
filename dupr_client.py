@@ -277,6 +277,15 @@ class DuprClient(object):
             self.access_token = data.get("result").get("accessToken")
             logger.debug(f"access token: {self.access_token[:10]}...")
             self.save_token()
+        else:
+            # Surface DUPR's reason (e.g. 428 = extra verification required)
+            # instead of a bare status code.
+            try:
+                body = r.json()
+                reason = f"{body.get('errorCode')}: {body.get('message')}"
+            except Exception:
+                reason = r.text[:200]
+            logger.warning(f"DUPR login failed {r.status_code}: {reason}")
         return r.status_code
 
     def headers(self):

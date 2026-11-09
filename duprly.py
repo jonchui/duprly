@@ -725,3 +725,30 @@ def create_match_template():
     print("📝 Created match_template.json")
     print("Edit this file with your actual matches and run:")
     print("python3 duprly.py analyze-matches match_template.json")
+
+
+@click.group()
+def cli():
+    """duprly — DUPR data CLI"""
+
+
+for _cmd in (
+    get_data,
+    write_excel,
+    stats,
+    get_all_players,
+    get_player,
+    delete_player,
+    get_matches,
+    update_ratings,
+    test_db,
+    search_players,
+    expected_score,
+    analyze_matches,
+    create_match_template,
+):
+    cli.add_command(_cmd)
+
+
+if __name__ == "__main__":
+    cli()
