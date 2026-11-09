@@ -705,3 +705,71 @@ def api_reset_shadow(req: ShadowResetRequest):
     except shadow_svc.ShadowUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
     return ShadowResetDTO(**summary.to_dict())
+
+
+# ---------- Court rosters (pckl.bot app) ---------------------------------------
+# The app reads a class's registrants from the venue and asks here for DUPR,
+# crowd skill (FUPR) and its own play-again votes. See web/services/court.py.
+
+from web.services import court as court_svc  # noqa: E402
+
+
+class CourtPeopleRequest(BaseModel):
+    venue: str = Field(..., min_length=1, max_length=64)
+    names: List[str] = Field(default_factory=list, max_length=court_svc.MAX_NAMES)
+    voter: str = Field(..., min_length=3, max_length=254)
+
+
+class CourtLinkRequest(BaseModel):
+    venue: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., min_length=1, max_length=128)
+    dupr_id: Optional[str] = Field(default=None, max_length=64)
+    voter: str = Field(..., min_length=3, max_length=254)
+
+
+class CourtVoteItem(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    skill: Optional[float] = None
+    again: Optional[int] = None
+
+
+class CourtVoteRequest(BaseModel):
+    venue: str = Field(..., min_length=1, max_length=64)
+    class_id: str = Field(..., min_length=1, max_length=64)
+    voter: str = Field(..., min_length=3, max_length=254)
+    votes: List[CourtVoteItem] = Field(default_factory=list, max_length=court_svc.MAX_NAMES)
+
+
+def _court(fn):
+    try:
+        return fn()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/court/people", summary="DUPR, crowd skill and my votes for a class roster")
+def api_court_people(req: CourtPeopleRequest, session: Session = Depends(get_session)):
+    return _court(lambda: court_svc.people(session, req.venue, req.names, req.voter))
+
+
+@router.post("/court/link", summary="Link a roster name to a DUPR profile")
+def api_court_link(req: CourtLinkRequest, session: Session = Depends(get_session)):
+    return _court(lambda: court_svc.link(session, req.venue, req.name, req.dupr_id, req.voter))
+
+
+@router.post("/court/votes", summary="Skill + play-again votes after a class")
+def api_court_votes(req: CourtVoteRequest, session: Session = Depends(get_session)):
+    n = _court(lambda: court_svc.vote(session, req.venue, req.class_id, req.voter, [v.model_dump() for v in req.votes]))
+    return {"saved": n}
+
+
+@router.get("/court/dupr-search", response_model=List[DuprHitDTO], summary="DUPR search on the court account")
+def api_court_dupr_search(
+    q: str = Query(..., min_length=2, max_length=64),
+    session: Session = Depends(get_session),
+):
+    # Uses COURT_DUPR_USERNAME/PASSWORD, never Jon's personal login. Called only on a tap.
+    hits = dupr_live.search(session, query=q, limit=8, live_fallback=True, account="court")
+    return [DuprHitDTO(dupr_id=h.dupr_id, full_name=h.full_name, doubles=h.doubles,
+                       doubles_reliability=h.doubles_reliability, singles=h.singles,
+                       image_url=h.image_url, source=h.source, stale=h.stale) for h in hits]

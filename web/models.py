@@ -134,3 +134,42 @@ class FuprVote(Base):
     voter_key: Mapped[str] = mapped_column(String(128), index=True)  # IP hash or user id
     comment: Mapped[Optional[str]] = mapped_column(String(280))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CourtPerson(Base):
+    """
+    Someone seen on a venue's class roster (pckl.bot app). Venues like Relish
+    (CourtReserve) only show "Cindy S.", so a person is (venue, display name).
+    `dupr_id` is set once somebody links the name to a DUPR profile.
+    """
+
+    __tablename__ = "court_person"
+    __table_args__ = (UniqueConstraint("venue", "name", name="uq_court_person_venue_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue: Mapped[str] = mapped_column(String(64))  # e.g. "courtreserve:13679"
+    name: Mapped[str] = mapped_column(String(128))  # as the venue shows it
+    dupr_id: Mapped[Optional[str]] = mapped_column(String(64))
+    linked_by: Mapped[Optional[str]] = mapped_column(String(64))  # voter hash
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CourtVote(Base):
+    """
+    One player's take on another after a class: skill guess (their FUPR, 2.0-7.0)
+    and whether they'd play with them again (+1 / -1). One row per voter, person, class.
+    """
+
+    __tablename__ = "court_vote"
+    __table_args__ = (
+        UniqueConstraint("person_id", "voter_key", "class_id", name="uq_court_vote"),
+        Index("ix_court_vote_person", "person_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("court_person.id"))
+    voter_key: Mapped[str] = mapped_column(String(64), index=True)
+    class_id: Mapped[str] = mapped_column(String(64))  # pckl.bot class_id, e.g. cr_2IH8UTC13679752
+    skill: Mapped[Optional[float]] = mapped_column(Float)
+    again: Mapped[Optional[int]] = mapped_column(Integer)  # 1, -1 or null
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

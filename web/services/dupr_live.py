@@ -31,32 +31,48 @@ from web.models import DuprCachedPlayer
 
 _LOG = logging.getLogger("duprly.dupr_live")
 _CLIENT_LOCK = threading.Lock()
-_CLIENT_SINGLETON: Any | None = None
+_CLIENTS: Dict[str, Any] = {}
+
+# Which DUPR login each caller uses. "court" is the pckl.bot roster lookup; it has
+# its own account so app traffic never touches Jon's personal login.
+_ACCOUNT_ENV = {
+    "default": ("DUPR_USERNAME", "DUPR_PASSWORD"),
+    "court": ("COURT_DUPR_USERNAME", "COURT_DUPR_PASSWORD"),
+}
+# Logins an account may never use (court must not run on Jon's personal DUPR).
+_FORBIDDEN = {"court": {"lucas@jonchui.com"}}
 
 
-def _has_live_credentials() -> bool:
-    return bool(os.environ.get("DUPR_USERNAME") and os.environ.get("DUPR_PASSWORD"))
+def _creds(account: str = "default") -> Optional[tuple]:
+    user_key, pw_key = _ACCOUNT_ENV[account]
+    user, pw = os.environ.get(user_key, "").strip(), os.environ.get(pw_key, "")
+    if not user or not pw:
+        return None
+    if user.lower() in _FORBIDDEN.get(account, set()):
+        _LOG.error("refusing DUPR login %s for account %r", user, account)
+        return None
+    return user, pw
 
 
-def _get_live_client():
-    """Return a memoized authenticated DuprClient, or raise if not configured."""
-    global _CLIENT_SINGLETON
-    if not _has_live_credentials():
-        raise RuntimeError(
-            "DUPR live lookup not configured — set DUPR_USERNAME and DUPR_PASSWORD"
-        )
+def _has_live_credentials(account: str = "default") -> bool:
+    return _creds(account) is not None
+
+
+def _get_live_client(account: str = "default"):
+    """Return a memoized authenticated DuprClient for `account`, or raise if not configured."""
+    creds = _creds(account)
+    if creds is None:
+        k = _ACCOUNT_ENV[account]
+        raise RuntimeError(f"DUPR live lookup not configured — set {k[0]} and {k[1]}")
     with _CLIENT_LOCK:
-        if _CLIENT_SINGLETON is None:
+        if account not in _CLIENTS:
             from dupr_client import DuprClient  # imported lazily
             c = DuprClient()
-            rc = c.auth_user(
-                os.environ["DUPR_USERNAME"],
-                os.environ["DUPR_PASSWORD"],
-            )
+            rc = c.auth_user(*creds)
             if rc != 0 and rc != 200:
                 raise RuntimeError(f"DUPR auth failed ({rc})")
-            _CLIENT_SINGLETON = c
-    return _CLIENT_SINGLETON
+            _CLIENTS[account] = c
+    return _CLIENTS[account]
 
 
 def _safe_float(v: Any) -> Optional[float]:
@@ -273,6 +289,7 @@ def search(
     query: str,
     limit: int = 15,
     live_fallback: bool = True,
+    account: str = "default",
 ) -> List[PlayerSearchHit]:
     """
     Hybrid search: cache first, live DUPR fallback when results look thin or
@@ -335,9 +352,9 @@ def search(
     # live order (which was putting alphabetical cache rows above DUPR's #1).
     live_hits: List[PlayerSearchHit] = []
 
-    if live_fallback and thin_cache and _has_live_credentials():
+    if live_fallback and thin_cache and _has_live_credentials(account):
         try:
-            client = _get_live_client()
+            client = _get_live_client(account)
 
             # If it looks like a numeric id, try the exact-player endpoint first.
             if is_numeric_id:
@@ -369,7 +386,7 @@ def search(
                                 live_hits.append(h)
         except Exception as exc:
             _LOG.warning("dupr live search failed q=%r err=%s", q, exc)
-    elif live_fallback and thin_cache and not _has_live_credentials():
+    elif live_fallback and thin_cache and not _has_live_credentials(account):
         _LOG.debug("dupr live search skipped (no DUPR_USERNAME/PASSWORD set)")
 
     # Merge: live hits first (in DUPR's relevance order), then any cache-only
