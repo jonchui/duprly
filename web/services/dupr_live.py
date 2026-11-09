@@ -46,6 +46,11 @@ _ACCOUNT_ENV = {
 _FORBIDDEN = {"court": {"lucas@jonchui.com"}}
 
 
+def _session_token(account: str = "default") -> str:
+    """DUPR_SESSION_TOKEN: a saved __Host-dupr_at session for the default account."""
+    return os.environ.get("DUPR_SESSION_TOKEN", "").strip() if account == "default" else ""
+
+
 def _creds(account: str = "default") -> Optional[tuple]:
     user_key, pw_key = _ACCOUNT_ENV[account]
     user, pw = os.environ.get(user_key, "").strip(), os.environ.get(pw_key, "")
@@ -114,9 +119,19 @@ def start_login(username: str, password: str) -> Optional[Dict[str, Any]]:
 
 def verify_code(challenge: str, code: str) -> Optional[Dict[str, Any]]:
     """Step 2: the emailed 6-digit code → {"token", "refresh_token"}, or None if DUPR rejects it."""
-    rc, j, res = _dupr_post("/auth/v1.0/2fa/verify", {"challengeToken": challenge, "code": code.strip()})
-    if rc == 200 and res.get("accessToken"):
-        return {"token": res["accessToken"], "refresh_token": res.get("refreshToken")}
+    c = isolated_client()
+    r = c._rl_request("POST", c.u("/auth/v1.0/2fa/verify"), is_login=True,
+                      json={"challengeToken": challenge, "code": code.strip()},
+                      headers={"x-dupr-client-capabilities": "totp,webauthn"})
+    if r.status_code == 503 and r.headers.get("X-Duprly-Limiter"):
+        raise DuprBusy(r.headers["X-Duprly-Limiter"])
+    rc, j = r.status_code, _json(r)
+    res = j.get("result") if isinstance(j.get("result"), dict) else {}
+    # dashboard.dupr.com's verify answers with the session only as cookies.
+    cookies = getattr(r, "cookies", None) or {}
+    token = cookies.get("__Host-dupr_at") or res.get("accessToken")
+    if rc == 200 and token:
+        return {"token": token, "refresh_token": cookies.get("__Host-dupr_rt") or res.get("refreshToken")}
     _LOG.info("dupr 2fa verify rejected rc=%s", rc)
     # Pass DUPR's own reason through ("Verification code expired. Please request a new code.")
     return {"error": str(j.get("message") or "DUPR didn't accept that code")[:200]}
@@ -134,12 +149,14 @@ def login_check(username: str, password: str) -> Optional[str]:
 
 
 def _has_live_credentials(account: str = "default") -> bool:
-    return _creds(account) is not None
+    return bool(_session_token(account)) or _creds(account) is not None
 
 
 def _get_live_client(account: str = "default"):
     """Return a memoized authenticated DuprClient for `account`, or raise if not configured."""
     creds = _creds(account)
+    if creds is None and _session_token(account):
+        creds = ("", "")  # session token only: DuprClient loads it; no re-login possible
     if creds is None:
         k = _ACCOUNT_ENV[account]
         raise RuntimeError(f"DUPR live lookup not configured — set {k[0]} and {k[1]}")
