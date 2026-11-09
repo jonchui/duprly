@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-semibold mb-1">Changelog</h1>
+  {% set v = site_version() %}
+  <p class="text-sm text-slate-400 mb-6">Running <span class="mono">v{{ v.version }} · {{ v.commit }}</span> ({{ v.env }})</p>
+  {% for e in entries %}
+  <section class="mb-6">
+    <h2 class="font-semibold">v{{ e.version }} <span class="text-slate-500 text-sm font-normal">{{ e.date }}</span></h2>
+    <ul class="list-disc ml-5 text-sm text-slate-300 mt-1">{% for c in e.changes %}<li>{{ c }}</li>{% endfor %}</ul>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

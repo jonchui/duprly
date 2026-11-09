@@ -1,0 +1,17 @@
+[
+  {
+    "version": "0.3.0",
+    "date": "2026-11-09",
+    "changes": [
+      "New: site version + commit in the footer, /changelog page and /api/version",
+      "Fix: live DUPR search on Vercel (requests + loguru were never installed there)",
+      "Fix: DUPR's emailed 2FA login and cookie sessions; runs on DUPR_SESSION_TOKEN",
+      "Fix: Players page search never showed results (slot=0 was rejected)"
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "date": "2026-11-09",
+    "changes": ["New: court rosters API for pckl.bot (people, DUPR link, skill + play-again votes, DUPR login with emailed code)"]
+  }
+]

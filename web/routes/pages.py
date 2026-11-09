@@ -20,6 +20,9 @@ from web.services import shadow as shadow_svc
 
 _TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 templates = Jinja2Templates(directory=os.path.abspath(_TEMPLATES_DIR))
+from web import version as site_version  # noqa: E402
+
+templates.env.globals["site_version"] = site_version.info
 
 router = APIRouter()
 
@@ -27,6 +30,11 @@ router = APIRouter()
 def _tr(request: Request, name: str, context: dict) -> HTMLResponse:
     """Starlette >=0.38 signature-safe wrapper around TemplateResponse."""
     return templates.TemplateResponse(request, name, context)
+
+
+@router.get("/changelog", response_class=HTMLResponse)
+def changelog_page(request: Request):
+    return _tr(request, "changelog.html", {"entries": site_version.changelog()})
 
 
 @router.get("/", response_class=HTMLResponse)
