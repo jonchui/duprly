@@ -35,6 +35,8 @@ _CLIENT_SINGLETON: Any | None = None
 
 
 def _has_live_credentials() -> bool:
+    if os.environ.get("DUPR_SESSION_TOKEN", "").strip():
+        return True
     return bool(os.environ.get("DUPR_USERNAME") and os.environ.get("DUPR_PASSWORD"))
 
 
@@ -49,9 +51,11 @@ def _get_live_client():
         if _CLIENT_SINGLETON is None:
             from dupr_client import DuprClient  # imported lazily
             c = DuprClient()
+            # With DUPR_SESSION_TOKEN set, auth_user just keeps that session;
+            # creds (if any) are only used to re-login after a 401.
             rc = c.auth_user(
-                os.environ["DUPR_USERNAME"],
-                os.environ["DUPR_PASSWORD"],
+                os.environ.get("DUPR_USERNAME", ""),
+                os.environ.get("DUPR_PASSWORD", ""),
             )
             if rc != 0 and rc != 200:
                 raise RuntimeError(f"DUPR auth failed ({rc})")
