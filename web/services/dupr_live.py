@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -32,6 +33,8 @@ from web.models import DuprCachedPlayer
 _LOG = logging.getLogger("duprly.dupr_live")
 _CLIENT_LOCK = threading.Lock()
 _CLIENTS: Dict[str, Any] = {}
+_LOGIN_PAUSED_UNTIL: Dict[str, float] = {}
+LOGIN_PAUSE_S = 30 * 60
 
 # Which DUPR login each caller uses. "court" is the pckl.bot roster lookup; it has
 # its own account so app traffic never touches Jon's personal login.
@@ -142,9 +145,16 @@ def _get_live_client(account: str = "default"):
         raise RuntimeError(f"DUPR live lookup not configured — set {k[0]} and {k[1]}")
     with _CLIENT_LOCK:
         if account not in _CLIENTS:
+            # After a failed or code-required login, don't try again for a while: each try
+            # emails the account a new DUPR code and counts toward DUPR's lockout (see the
+            # 2026-04-30 incident). Unattended logins can't answer an emailed code anyway.
+            wait = _LOGIN_PAUSED_UNTIL.get(account, 0) - time.time()
+            if wait > 0:
+                raise RuntimeError(f"DUPR login for {account!r} paused {int(wait)}s after a failed/code-required login")
             c = isolated_client() if account != "default" else _shared_client()
             rc = c.auth_user(*creds)
             if rc != 0 and rc != 200:
+                _LOGIN_PAUSED_UNTIL[account] = time.time() + LOGIN_PAUSE_S
                 raise RuntimeError(f"DUPR auth failed ({rc})")
             _CLIENTS[account] = c
     return _CLIENTS[account]

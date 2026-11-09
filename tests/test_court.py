@@ -201,3 +201,26 @@ def test_login_user_handles_challenge_without_crashing(monkeypatch):
     c.save_token = lambda: None
     monkeypatch.setattr(c, "_rl_request", lambda *a, **k: FakeResp(200, {"result": {"twoFactorRequired": True, "challengeToken": "x"}}))
     assert c.login_user("a@b.c", "p") == 428 and not c.access_token
+
+
+def test_failed_or_code_login_pauses_retries(monkeypatch):
+    """A login that needs an emailed code must not be retried on every request (each try emails a code)."""
+    calls = []
+
+    class CodeOnly:
+        access_token = None
+        def save_token(self): pass
+        def auth_user(self, u, p):
+            calls.append(u)
+            return 428
+
+    monkeypatch.setattr(dupr_live, "isolated_client", lambda token=None: CodeOnly())
+    monkeypatch.setenv("COURT_DUPR_USERNAME", "court@example.com")
+    monkeypatch.setenv("COURT_DUPR_PASSWORD", "x")
+    dupr_live._CLIENTS.pop("court", None)
+    dupr_live._LOGIN_PAUSED_UNTIL.pop("court", None)
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            dupr_live._get_live_client("court")
+    assert calls == ["court@example.com"]  # one login, then paused
+    dupr_live._LOGIN_PAUSED_UNTIL.pop("court", None)
