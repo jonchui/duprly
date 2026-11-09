@@ -63,7 +63,8 @@
       <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500 flex flex-wrap gap-4 justify-between">
         <div>
           <strong class="text-slate-400">duprly</strong> · reverse-engineered DUPR forecast (approximation, not official) ·
-          <a class="underline hover:text-slate-300" href="/api/docs">public API</a>
+          <a class="underline hover:text-slate-300" href="/api/docs">public API</a> ·
+          {% set v = site_version() %}<a class="underline hover:text-slate-300 mono" href="/changelog" title="{{ v.env }} · {{ v.date }}">v{{ v.version }} · {{ v.commit }}</a>
         </div>
         <div>
           built on the fitted model in <span class="mono">dupr_model.json</span>

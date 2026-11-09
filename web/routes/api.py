@@ -830,3 +830,9 @@ def api_court_dupr_search(
     return [DuprHitDTO(dupr_id=h.dupr_id, full_name=h.full_name, doubles=h.doubles,
                        doubles_reliability=h.doubles_reliability, singles=h.singles,
                        image_url=h.image_url, source=h.source, stale=h.stale) for h in hits]
+
+
+@router.get("/version", summary="Deployed version, commit and latest changes")
+def api_version():
+    from web import version as site_version
+    return site_version.info()
