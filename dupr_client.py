@@ -274,7 +274,11 @@ class DuprClient(object):
         if r.status_code == 200:
             data = r.json()
             self.ppj(data)
-            self.access_token = data.get("result").get("accessToken")
+            # DUPR may answer 200 with a two-factor challenge (emailed 6-digit code) and no token.
+            self.access_token = (data.get("result") or {}).get("accessToken")
+            if not self.access_token:
+                logger.debug("login user: no access token (two-factor challenge?)")
+                return 428
             logger.debug(f"access token: {self.access_token[:10]}...")
             self.save_token()
         return r.status_code

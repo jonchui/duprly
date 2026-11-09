@@ -93,9 +93,19 @@ def test_court_account_never_uses_lucas(monkeypatch):
 
 # ---- player's own DUPR login (app keeps creds in the Keychain, sends the token) ----
 
+class FakeResp:
+    def __init__(self, status, body):
+        self.status_code, self._body, self.headers = status, body, {}
+
+    def json(self):
+        return self._body
+
+
 class FakeDupr:
-    """Stands in for dupr_client.DuprClient: no network, no token file."""
+    """Stands in for dupr_client.DuprClient: no network, no token file.
+    me@example.com/right logs straight in; code@example.com/right gets an emailed code (123456)."""
     tokens_seen: list = []
+    posts: list = []
 
     def __init__(self, *a, **k):
         self.access_token = "SHARED-FILE-TOKEN"  # what a real client would load from ~/.duprly_config
@@ -104,11 +114,25 @@ class FakeDupr:
     def save_token(self):
         self.saved = True
 
-    def login_user(self, username, password):
-        if (username, password) == ("me@example.com", "right"):
-            self.access_token = "tok-me"
-            return 200
-        return 403
+    def u(self, path):
+        return path
+
+    def _rl_request(self, method, url, is_login=False, json=None, **kw):
+        FakeDupr.posts.append((url, sorted(json)))
+        if url == "/auth/v1.0/login/":
+            if json == {"email": "me@example.com", "password": "right"}:
+                return FakeResp(200, {"status": "SUCCESS", "result": {"accessToken": "tok-me"}})
+            if json == {"email": "code@example.com", "password": "right"}:
+                return FakeResp(200, {"status": "SUCCESS", "result": {"twoFactorRequired": True, "challengeToken": "chal-123",
+                                                                     "methods": [{"type": "urn:dupr:second-factor:email"}]}})
+            return FakeResp(401, {"status": "FAILURE", "message": "bad"})
+        if url == "/auth/v1.0/2fa/verify":
+            if json == {"challengeToken": "chal-123", "code": "123456"}:
+                return FakeResp(200, {"status": "SUCCESS", "result": {"accessToken": "tok-me", "refreshToken": "r"}})
+            return FakeResp(400, {"status": "FAILURE"})
+        if url == "/auth/v1.0/2fa/resend":
+            return FakeResp(200 if json == {"challengeToken": "chal-123"} else 400, {})
+        return FakeResp(404, {})
 
     def search_players(self, q, limit=25):
         FakeDupr.tokens_seen.append(self.access_token)
@@ -126,7 +150,7 @@ def fake_dupr(monkeypatch):
     monkeypatch.setattr(dupr_client, "DuprClient", FakeDupr)
     monkeypatch.delenv("COURT_DUPR_USERNAME", raising=False)
     monkeypatch.delenv("COURT_DUPR_PASSWORD", raising=False)
-    FakeDupr.tokens_seen = []
+    FakeDupr.tokens_seen, FakeDupr.posts = [], []
     return FakeDupr
 
 
@@ -156,3 +180,23 @@ def test_isolated_client_does_not_load_or_save_shared_token(fake_dupr):
     c.access_token = "x"
     c.save_token()
     assert not getattr(c, "saved", False)
+
+
+def test_dupr_login_with_emailed_code(client, fake_dupr):
+    r = client.post("/api/court/dupr-login", json={"username": "code@example.com", "password": "right"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": False, "needs_code": True, "challenge": "chal-123", "methods": ["urn:dupr:second-factor:email"]}
+    assert client.post("/api/court/dupr-code", json={"challenge": "chal-123", "code": "000000"}).status_code == 401
+    ok = client.post("/api/court/dupr-code", json={"challenge": "chal-123", "code": " 123456 "})
+    assert ok.status_code == 200 and ok.json() == {"ok": True, "token": "tok-me"}
+    assert client.post("/api/court/dupr-resend", json={"challenge": "chal-123"}).json() == {"ok": True}
+    # the password only ever goes to DUPR's login call
+    assert [u for u, keys in fake_dupr.posts if "password" in keys] == ["/auth/v1.0/login/"] * 1
+
+
+def test_login_user_handles_challenge_without_crashing(monkeypatch):
+    import dupr_client
+    c = dupr_client.DuprClient()
+    c.save_token = lambda: None
+    monkeypatch.setattr(c, "_rl_request", lambda *a, **k: FakeResp(200, {"result": {"twoFactorRequired": True, "challengeToken": "x"}}))
+    assert c.login_user("a@b.c", "p") == 428 and not c.access_token

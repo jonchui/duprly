@@ -768,14 +768,47 @@ class CourtDuprLoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=256)
 
 
-@router.post("/court/dupr-login", summary="Check a player's own DUPR login once; returns their DUPR token")
+@router.post("/court/dupr-login", summary="Step 1 of a player's own DUPR login")
 def api_court_dupr_login(req: CourtDuprLoginRequest):
-    # The password is used for this one DUPR login and never stored or logged here.
-    # The app keeps the creds in the phone's Keychain and sends only the token after this.
-    token = dupr_live.login_check(req.username, req.password)
-    if not token:
+    # The password is used for this one DUPR call and never stored or logged here.
+    # → {"ok": true, "token"} or, when DUPR emails a 6-digit code, {"ok": false, "needs_code": true, "challenge"}.
+    try:
+        r = dupr_live.start_login(req.username, req.password)
+    except dupr_live.DuprBusy:
+        raise HTTPException(status_code=503, detail="DUPR is busy, try again in a minute")
+    if not r:
         raise HTTPException(status_code=401, detail="DUPR didn't accept that email and password")
-    return {"ok": True, "token": token}
+    if r.get("token"):
+        return {"ok": True, "token": r["token"]}
+    return {"ok": False, "needs_code": True, "challenge": r["challenge"], "methods": r.get("methods", [])}
+
+
+class CourtDuprCodeRequest(BaseModel):
+    challenge: str = Field(..., min_length=8, max_length=4096)
+    code: str = Field(..., min_length=4, max_length=12)
+
+
+class CourtDuprResendRequest(BaseModel):
+    challenge: str = Field(..., min_length=8, max_length=4096)
+
+
+@router.post("/court/dupr-code", summary="Step 2: the 6-digit code DUPR emailed → DUPR token")
+def api_court_dupr_code(req: CourtDuprCodeRequest):
+    try:
+        r = dupr_live.verify_code(req.challenge, req.code)
+    except dupr_live.DuprBusy:
+        raise HTTPException(status_code=503, detail="DUPR is busy, try again in a minute")
+    if not r:
+        raise HTTPException(status_code=401, detail="DUPR didn't accept that code")
+    return {"ok": True, "token": r["token"]}
+
+
+@router.post("/court/dupr-resend", summary="Ask DUPR to email the code again")
+def api_court_dupr_resend(req: CourtDuprResendRequest):
+    try:
+        return {"ok": dupr_live.resend_code(req.challenge)}
+    except dupr_live.DuprBusy:
+        raise HTTPException(status_code=503, detail="DUPR is busy, try again in a minute")
 
 
 @router.get("/court/dupr-search", response_model=List[DuprHitDTO], summary="DUPR search for linking a roster name")

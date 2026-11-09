@@ -73,11 +73,60 @@ class DuprLoginRequired(Exception):
     """No DUPR session to search with, or DUPR rejected the token (401/403)."""
 
 
-def login_check(username: str, password: str) -> Optional[str]:
-    """Log in to DUPR once with these creds; the access token, or None if DUPR said no."""
+class DuprBusy(Exception):
+    """duprly's DUPR rate limiter is holding requests back (protects the account from lockouts)."""
+
+
+def _json(r) -> Dict[str, Any]:
+    try:
+        j = r.json()
+        return j if isinstance(j, dict) else {}
+    except Exception:
+        return {}
+
+
+def _dupr_post(path: str, body: Dict[str, Any]):
     c = isolated_client()
-    rc = c.login_user(username.strip(), password)
-    return c.access_token if rc == 200 and c.access_token else None
+    r = c._rl_request("POST", c.u(path), is_login=True, json=body)
+    if r.status_code == 503 and r.headers.get("X-Duprly-Limiter"):
+        raise DuprBusy(r.headers["X-Duprly-Limiter"])
+    j = _json(r)
+    return r.status_code, j, (j.get("result") if isinstance(j.get("result"), dict) else {})
+
+
+def start_login(username: str, password: str) -> Optional[Dict[str, Any]]:
+    """Step 1 of a DUPR login. {"token"} when DUPR lets you straight in, {"challenge", "methods"}
+    when it emails a 6-digit code first, None when it rejects the email/password.
+    Mirrors dashboard.dupr.com: POST /auth/v1.0/login → twoFactorRequired + challengeToken."""
+    rc, j, res = _dupr_post("/auth/v1.0/login/", {"email": username.strip(), "password": password})
+    if rc == 200 and res.get("accessToken"):
+        return {"token": res["accessToken"], "refresh_token": res.get("refreshToken")}
+    challenge = res.get("challengeToken") or j.get("challengeToken")
+    if challenge:
+        methods = [m.get("type") if isinstance(m, dict) else m for m in (res.get("methods") or j.get("methods") or [])]
+        return {"challenge": challenge, "methods": [m for m in methods if m]}
+    _LOG.info("dupr login rejected rc=%s", rc)
+    return None
+
+
+def verify_code(challenge: str, code: str) -> Optional[Dict[str, Any]]:
+    """Step 2: the emailed 6-digit code → {"token", "refresh_token"}, or None if DUPR rejects it."""
+    rc, j, res = _dupr_post("/auth/v1.0/2fa/verify", {"challengeToken": challenge, "code": code.strip()})
+    if rc == 200 and res.get("accessToken"):
+        return {"token": res["accessToken"], "refresh_token": res.get("refreshToken")}
+    _LOG.info("dupr 2fa verify rejected rc=%s", rc)
+    return None
+
+
+def resend_code(challenge: str) -> bool:
+    rc, _, _ = _dupr_post("/auth/v1.0/2fa/resend", {"challengeToken": challenge})
+    return rc == 200
+
+
+def login_check(username: str, password: str) -> Optional[str]:
+    """One-step login (no code): the access token, or None."""
+    r = start_login(username, password)
+    return r.get("token") if r else None
 
 
 def _has_live_credentials(account: str = "default") -> bool:
