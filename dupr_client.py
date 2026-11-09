@@ -64,7 +64,7 @@ class DuprClient(object):
         if api_url:
             self.env_url = api_url
         else:
-            self.env_url = "https://api.dupr.gg"
+            self.env_url = os.environ.get("DUPR_API_URL", "https://api.dupr.gg")  # tests can point at a fake DUPR
         if api_version:
             self.version = api_version
         else:
