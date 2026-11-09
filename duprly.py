@@ -727,12 +727,21 @@ def create_match_template():
     print("python3 duprly.py analyze-matches match_template.json")
 
 
+@click.command()
+def login():
+    """Sign in to DUPR (prompts for the emailed 2FA code) and save the session."""
+    dupr.access_token = None
+    rc = dupr.login_user(os.getenv("DUPR_USERNAME"), os.getenv("DUPR_PASSWORD"))
+    print("✅ Logged in, session saved" if rc == 200 else f"❌ Login failed ({rc})")
+
+
 @click.group()
 def cli():
     """duprly — DUPR data CLI"""
 
 
 for _cmd in (
+    login,
     get_data,
     write_excel,
     stats,
