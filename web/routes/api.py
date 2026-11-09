@@ -784,12 +784,12 @@ def api_court_dupr_login(req: CourtDuprLoginRequest):
 
 
 class CourtDuprCodeRequest(BaseModel):
-    challenge: str = Field(..., min_length=8, max_length=4096)
+    challenge: str = Field(..., min_length=1, max_length=4096)
     code: str = Field(..., min_length=4, max_length=12)
 
 
 class CourtDuprResendRequest(BaseModel):
-    challenge: str = Field(..., min_length=8, max_length=4096)
+    challenge: str = Field(..., min_length=1, max_length=4096)
 
 
 @router.post("/court/dupr-code", summary="Step 2: the 6-digit code DUPR emailed → DUPR token")
