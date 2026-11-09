@@ -981,7 +981,7 @@ def jupr_search(
 def dupr_search_partial(
     request: Request,
     q: str = Query(default=""),
-    slot: int = Query(default=1, ge=1, le=4),
+    slot: int = Query(default=1, ge=0, le=4),  # 0 = Players page (no picker slot)
     session: Session = Depends(get_session),
 ):
     """

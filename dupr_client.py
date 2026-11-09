@@ -71,6 +71,13 @@ class DuprClient(object):
             self.version = "v1.0"
         self.access_token = None
         self.refresh_token = None  # from login
+        # "cookie" = session from DUPR's 2FA login (sent as the
+        # __Host-dupr_at cookie); "bearer" = legacy pre-2FA JWT.
+        self.auth_mode = "bearer"
+        # Set when DUPR answers a login with a 2FA challenge we couldn't
+        # finish. Every further login attempt would email another code, so
+        # we stop re-logging in for the rest of this process.
+        self._needs_2fa = False
         self.failed = False  # Strange way to return error, for now TBD
         self.verbose = verbose
         # TLS verify behavior is env-driven so we can flip it without a code
@@ -91,12 +98,22 @@ class DuprClient(object):
         self.load_token()
 
     def load_token(self):
-        """Load access token stored locally if available"""
+        """Load the DUPR session: DUPR_SESSION_TOKEN env var first (servers,
+        e.g. Vercel, where no one can type a 2FA code), else ~/.duprly_config."""
+        env_token = os.getenv("DUPR_SESSION_TOKEN", "").strip()
+        if env_token:
+            self.access_token = env_token
+            self.auth_mode = "cookie"
+            return
         try:
             with open(self.env_path, "r") as f:
                 data = json.load(f)
                 logger.debug(f"{data['access_token'][:10]}...")
                 self.access_token = data["access_token"]
+                self.refresh_token = data.get("refresh_token")
+                self.auth_mode = data.get(
+                    "auth_mode", "cookie" if self.refresh_token else "bearer"
+                )
         except FileNotFoundError:
             pass
 
@@ -104,9 +121,12 @@ class DuprClient(object):
         """Save  access token to disk, in plain json text"""
         try:
             with open(self.env_path, "w") as f:
-                data = {"access_token": self.access_token}
+                data = {"access_token": self.access_token, "auth_mode": self.auth_mode}
+                if self.refresh_token:
+                    data["refresh_token"] = self.refresh_token
                 json.dump(data, f)
-        except FileNotFoundError:
+            os.chmod(self.env_path, 0o600)
+        except OSError:  # read-only FS on serverless hosts
             logger.debug(f"Cannot save token to {self.env_path}")
 
     def u(self, parts):
@@ -165,6 +185,9 @@ class DuprClient(object):
         password = getattr(self, "_password", None)
         if not username or not password:
             return 0
+        if self._needs_2fa:
+            logger.warning("DUPR login needs a 2FA code; not retrying (each try emails a new code).")
+            return 428
         self.access_token = None
         rc = self.login_user(username, password)
         return rc
@@ -279,11 +302,87 @@ class DuprClient(object):
             if not self.access_token:
                 logger.debug("login user: no access token (two-factor challenge?)")
                 return 428
+            self.auth_mode = "bearer"
             logger.debug(f"access token: {self.access_token[:10]}...")
             self.save_token()
+        elif r.status_code == 428:
+            return self._finish_2fa(r)
+        else:
+            # Surface DUPR's reason (e.g. 428 = extra verification required)
+            # instead of a bare status code.
+            try:
+                body = r.json()
+                reason = f"{body.get('errorCode')}: {body.get('message')}"
+            except Exception:
+                reason = r.text[:200]
+            logger.warning(f"DUPR login failed {r.status_code}: {reason}")
         return r.status_code
 
+    def _finish_2fa(self, r: Response) -> int:
+        """Complete DUPR's email 2FA after a 428 login response.
+
+        DUPR emails a 6-digit code; we POST it with the challengeToken to
+        /auth/v1.0/2fa/verify, which answers with the session as
+        __Host-dupr_at / __Host-dupr_rt cookies. Only prompts when stdin is
+        a terminal — servers just fail, and stop retrying (see _needs_2fa).
+        """
+        import sys
+
+        self._needs_2fa = True
+        try:
+            challenge = r.json().get("challengeToken")
+        except Exception:
+            challenge = None
+        if not challenge or not sys.stdin.isatty():
+            logger.warning(
+                "DUPR login needs the emailed 2FA code. Run "
+                "`python duprly.py login` in a terminal to finish signing in."
+            )
+            return 428
+        code = input("DUPR emailed a 6-digit code. Enter it: ").strip()
+        v = self._rl_request(
+            "POST",
+            self.u("/auth/v1.0/2fa/verify"),
+            is_login=True,
+            json={"challengeToken": challenge, "code": code},
+            headers={"x-dupr-client-capabilities": "totp,webauthn"},
+        )
+        if v.status_code != 200:
+            logger.warning(f"DUPR 2FA verify failed {v.status_code}: {v.text[:200]}")
+            return v.status_code
+        at = v.cookies.get("__Host-dupr_at")
+        if not at:
+            # Fall back to a body token in case DUPR returns one.
+            at = ((v.json() or {}).get("result") or {}).get("accessToken")
+            self.auth_mode = "bearer"
+        else:
+            self.auth_mode = "cookie"
+        if not at:
+            logger.warning("DUPR 2FA verify returned 200 but no session token.")
+            return 0
+        self.access_token = at
+        self.refresh_token = v.cookies.get("__Host-dupr_rt")
+        self._needs_2fa = False
+        self.save_token()
+        return 200
+
+    @staticmethod
+    def is_cookie_session(token: Optional[str]) -> bool:
+        """DUPR's 2FA-era session tokens carry a `sid` claim and are only
+        accepted as the __Host-dupr_at cookie; legacy tokens go as Bearer."""
+        if not token or token.count(".") != 2:
+            return False
+        try:
+            import base64
+            p = token.split(".")[1]
+            p += "=" * (-len(p) % 4)
+            return "sid" in json.loads(base64.urlsafe_b64decode(p))
+        except Exception:
+            return False
+
     def headers(self):
+        if self.auth_mode == "cookie" or self.is_cookie_session(self.access_token):
+            return {"Cookie": f"__Host-dupr_at={self.access_token}"}
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def dupr_get(self, url, name: str = "") -> Response:

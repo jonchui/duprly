@@ -725,3 +725,39 @@ def create_match_template():
     print("📝 Created match_template.json")
     print("Edit this file with your actual matches and run:")
     print("python3 duprly.py analyze-matches match_template.json")
+
+
+@click.command()
+def login():
+    """Sign in to DUPR (prompts for the emailed 2FA code) and save the session."""
+    dupr.access_token = None
+    rc = dupr.login_user(os.getenv("DUPR_USERNAME"), os.getenv("DUPR_PASSWORD"))
+    print("✅ Logged in, session saved" if rc == 200 else f"❌ Login failed ({rc})")
+
+
+@click.group()
+def cli():
+    """duprly — DUPR data CLI"""
+
+
+for _cmd in (
+    login,
+    get_data,
+    write_excel,
+    stats,
+    get_all_players,
+    get_player,
+    delete_player,
+    get_matches,
+    update_ratings,
+    test_db,
+    search_players,
+    expected_score,
+    analyze_matches,
+    create_match_template,
+):
+    cli.add_command(_cmd)
+
+
+if __name__ == "__main__":
+    cli()
